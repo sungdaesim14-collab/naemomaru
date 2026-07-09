@@ -1045,10 +1045,17 @@ function applyLock(){
   savedOnce=hasContent();
   var btn=document.getElementById('saveAllBtn');
   btn.classList.remove('hidden');
-  btn.textContent=savedOnce?'수정하기':'오늘 기록 저장하기';
+  var past = !!(currentDate && currentDate!==localToday());
+  var dlabel='';
+  if(past){ var d=new Date(currentDate+'T00:00:00'); dlabel=(d.getMonth()+1)+'월 '+d.getDate()+'일 '; }
+  if(past){
+    btn.textContent=dlabel+(savedOnce?'기록 수정하기':'기록 저장하기');
+  } else {
+    btn.textContent=savedOnce?'수정하기':'오늘 기록 저장하기';
+  }
   document.getElementById('editBtn').classList.add('hidden');
   var st=document.getElementById('saveStatus');
-  if(savedOnce&&!dirty) st.textContent='오늘 기록이 저장돼 있어요. 고치면 ‘수정하기’를 눌러주세요.';
+  if(savedOnce&&!dirty) st.textContent=(past?dlabel:'오늘 ')+'기록이 저장돼 있어요. 고치면 다시 저장해 주세요.';
   else if(!dirty) st.textContent='';
 }
 function applyLockInputs(){}
