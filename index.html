@@ -1565,6 +1565,16 @@ function a2hsText(){
 }
 function showA2HS(){ document.getElementById('a2hsBody').innerHTML=a2hsText(); document.getElementById('a2hs').classList.remove('hidden'); }
 function hideA2HS(){ document.getElementById('a2hs').classList.add('hidden'); }
+var deferredPrompt=null;
+window.addEventListener('beforeinstallprompt', function(e){ e.preventDefault(); deferredPrompt=e; });
+function installOrGuide(){
+  if(deferredPrompt){
+    deferredPrompt.prompt();
+    deferredPrompt.userChoice.then(function(){ deferredPrompt=null; });
+  } else {
+    showA2HS();
+  }
+}
 
 /* ---------------- 계정 삭제 (본인) ---------------- */
 function deleteMe(){
@@ -1782,9 +1792,9 @@ document.getElementById('woopToggle').addEventListener('click',function(){
   woopOn=!woopOn; try{ localStorage.setItem('naemomaru_woop', woopOn?'1':'0'); }catch(e){}
   setWoopToggle(woopOn); applyWoopVisible();
 });
-document.getElementById('a2hsBtn').addEventListener('click', showA2HS);
+document.getElementById('a2hsBtn').addEventListener('click', installOrGuide);
 document.getElementById('a2hsClose').addEventListener('click',function(){ hideA2HS(); });
-document.getElementById('authA2hsBtn').addEventListener('click', showA2HS);
+document.getElementById('authA2hsBtn').addEventListener('click', installOrGuide);
 document.getElementById('msgHeart').addEventListener('click',function(){
   if(!msgHeartDate) return;
   var btn=this, cntEl=document.getElementById('msgHeartCnt'), svg=btn.querySelector('svg');
@@ -1810,14 +1820,11 @@ document.getElementById('msgHeart').addEventListener('click',function(){
   document.getElementById('nick').focus();
 })();
 
-// 문제 해결 중: 이전에 등록된 서비스워커/캐시를 정리해 항상 최신 화면을 받도록 함
+// 서비스워커 등록 (network-first: 항상 최신 화면 + 오프라인 대비 + 홈 설치)
 if('serviceWorker' in navigator){
-  navigator.serviceWorker.getRegistrations().then(function(regs){
-    regs.forEach(function(r){ r.unregister(); });
-  }).catch(function(){});
-}
-if(window.caches && caches.keys){
-  caches.keys().then(function(keys){ keys.forEach(function(k){ caches.delete(k); }); }).catch(function(){});
+  window.addEventListener('load', function(){
+    navigator.serviceWorker.register('sw.js').catch(function(){});
+  });
 }
 </script>
 </body>
