@@ -516,6 +516,7 @@
     <h3>홈 화면에 추가하기</h3>
     <div class="b" id="a2hsBody"></div>
     <button class="btn" id="a2hsClose" style="margin-top:18px;">알겠어요</button>
+    <button class="btn ghost" id="a2hsNever" style="margin-top:8px;">다시 보지 않기</button>
   </div>
 </div>
 
@@ -777,7 +778,7 @@ function doLogin(){
     session.nickname=res.nickname; session.isAdmin=!!res.isAdmin;
     if(res.icon) profile.icon=res.icon; if(res.practices) profile.practices=res.practices; if(res.customs) profile.customs=res.customs;
     try{ localStorage.setItem('naemomaru_session', JSON.stringify(session)); }catch(e){}
-    enterApp();
+    enterApp(true);
   },function(){ btn.textContent='시작하기'; btn.disabled=false; msg.textContent='연결이 잠시 불안정해요. 다시 눌러주세요.'; });
 }
 function doLogout(){
@@ -794,7 +795,7 @@ function localToday(){
   var t=new Date();
   return t.getFullYear()+'-'+String(t.getMonth()+1).padStart(2,'0')+'-'+String(t.getDate()).padStart(2,'0');
 }
-function enterApp(){
+function enterApp(fromLogin){
   document.getElementById('authView').classList.add('hidden');
   document.getElementById('tabbar').classList.remove('hidden');
   applyWoopVisible();
@@ -819,6 +820,16 @@ function enterApp(){
     if(painted && !dirty) document.getElementById('saveStatus').textContent='';
     setTimeout(function(){ prefetchWall(); prefetchMe(); }, 1200);
   },function(){ if(!painted) loadDay(''); });
+  if(fromLogin) maybeAutoA2HS();
+}
+function isStandalone(){
+  return (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) || window.navigator.standalone===true;
+}
+function maybeAutoA2HS(){
+  if(isStandalone()) return; // 이미 홈에서 앱으로 열림 → 안내 불필요
+  var never=false; try{ never=localStorage.getItem('naemomaru_a2hs_never')==='1'; }catch(e){}
+  if(never) return;
+  setTimeout(showA2HS, 900);
 }
 function applyBootstrap(res){
   if(!res){ loadDay(''); return; }
@@ -1794,6 +1805,10 @@ document.getElementById('woopToggle').addEventListener('click',function(){
 });
 document.getElementById('a2hsBtn').addEventListener('click', installOrGuide);
 document.getElementById('a2hsClose').addEventListener('click',function(){ hideA2HS(); });
+document.getElementById('a2hsNever').addEventListener('click',function(){
+  try{ localStorage.setItem('naemomaru_a2hs_never','1'); }catch(e){}
+  hideA2HS();
+});
 document.getElementById('authA2hsBtn').addEventListener('click', installOrGuide);
 document.getElementById('msgHeart').addEventListener('click',function(){
   if(!msgHeartDate) return;
