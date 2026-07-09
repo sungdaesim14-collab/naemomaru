@@ -716,12 +716,9 @@ try{ woopOn=(localStorage.getItem('naemomaru_woop')!=='0'); }catch(e){}
 ------------------------------------------ */
 var API_URL = "https://script.google.com/macros/s/AKfycbwYTd5Oo1UO7rp4tXYv5sondp3NagbquX_p3fccGyJiKNLaVQP1OPMEXBYypbY61PpRXA/exec";
 function gcall(fn,args,ok,fail){
-  fetch(API_URL, {
-    method:'POST',
-    headers:{'Content-Type':'text/plain;charset=utf-8'},
-    body: JSON.stringify({ action:fn, args:args||[] }),
-    redirect:'follow'
-  })
+  var url = API_URL + '?action=' + encodeURIComponent(fn) +
+            '&args=' + encodeURIComponent(JSON.stringify(args||[]));
+  fetch(url, { method:'GET', redirect:'follow' })
   .then(function(r){ return r.json(); })
   .then(function(j){
     if(j && j.ok){ if(ok) ok(j.result); }
