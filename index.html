@@ -715,16 +715,30 @@ try{ woopOn=(localStorage.getItem('naemomaru_woop')!=='0'); }catch(e){}
    예) https://script.google.com/macros/s/AKfycb..../exec
 ------------------------------------------ */
 var API_URL = "https://script.google.com/macros/s/AKfycbwYTd5Oo1UO7rp4tXYv5sondp3NagbquX_p3fccGyJiKNLaVQP1OPMEXBYypbY61PpRXA/exec";
+var _jsonpSeq = 0;
 function gcall(fn,args,ok,fail){
-  var url = API_URL + '?action=' + encodeURIComponent(fn) +
-            '&args=' + encodeURIComponent(JSON.stringify(args||[]));
-  fetch(url, { method:'GET', redirect:'follow' })
-  .then(function(r){ return r.json(); })
-  .then(function(j){
+  var cb = '__nmcb_' + (Date.now()) + '_' + (++_jsonpSeq);
+  var done = false;
+  var script = document.createElement('script');
+  var timer = setTimeout(function(){
+    if(done) return; done=true;
+    cleanup(); if(fail) fail('timeout');
+  }, 20000);
+  function cleanup(){
+    try{ delete window[cb]; }catch(e){ window[cb]=undefined; }
+    if(script && script.parentNode) script.parentNode.removeChild(script);
+    clearTimeout(timer);
+  }
+  window[cb] = function(j){
+    if(done) return; done=true; cleanup();
     if(j && j.ok){ if(ok) ok(j.result); }
     else { if(fail) fail((j&&j.error)||'error'); else console.error(j); }
-  })
-  .catch(function(e){ console.error(e); if(fail) fail(e); });
+  };
+  script.onerror = function(){ if(done) return; done=true; cleanup(); if(fail) fail('network'); };
+  script.src = API_URL + '?action=' + encodeURIComponent(fn) +
+    '&args=' + encodeURIComponent(JSON.stringify(args||[])) +
+    '&callback=' + cb;
+  document.body.appendChild(script);
 }
 function escapeHtml(s){ return String(s==null?'':s).replace(/[&<>"']/g,function(c){
   return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];}); }
@@ -1796,10 +1810,14 @@ document.getElementById('msgHeart').addEventListener('click',function(){
   document.getElementById('nick').focus();
 })();
 
+// 문제 해결 중: 이전에 등록된 서비스워커/캐시를 정리해 항상 최신 화면을 받도록 함
 if('serviceWorker' in navigator){
-  window.addEventListener('load', function(){
-    navigator.serviceWorker.register('sw.js').catch(function(){});
-  });
+  navigator.serviceWorker.getRegistrations().then(function(regs){
+    regs.forEach(function(r){ r.unregister(); });
+  }).catch(function(){});
+}
+if(window.caches && caches.keys){
+  caches.keys().then(function(keys){ keys.forEach(function(k){ caches.delete(k); }); }).catch(function(){});
 }
 </script>
 </body>
