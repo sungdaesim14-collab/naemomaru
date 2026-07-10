@@ -247,6 +247,21 @@
   .hist-date{flex:0 0 64px;color:var(--muted);}
   .hist-v{color:var(--ink-2);}
 
+  .ci-q{margin-bottom:14px;}
+  .ci-q:last-of-type{margin-bottom:6px;}
+  .ci-qt{font-size:14px;color:var(--ink);line-height:1.5;margin-bottom:8px;}
+  .ci-scale{display:flex;gap:6px;}
+  .ci-dot{flex:1;border:1px solid var(--line);background:#fff;border-radius:9px;padding:9px 0;font-size:13px;font-weight:600;color:var(--ink-2);}
+  .ci-dot.on{background:var(--sage-soft);border-color:#CFDBCF;color:var(--sage);}
+  .ci-sec{font-size:12px;font-weight:700;color:var(--sage);margin:16px 0 10px;letter-spacing:.02em;}
+  .ci-sec:first-child{margin-top:2px;}
+  .ci-result{background:var(--sage-soft);border:1px solid #CFDBCF;border-radius:14px;padding:16px;text-align:center;}
+  .ci-result .msg{font-family:"Noto Serif KR",serif;font-size:16px;line-height:1.7;color:var(--ink);}
+  .ci-result .sub{font-size:12.5px;color:#41513F;margin-top:10px;line-height:1.6;}
+  .ci-flow{display:flex;gap:6px;flex-wrap:wrap;margin-top:12px;justify-content:center;}
+  .ci-chip{font-size:11.5px;color:var(--ink-2);background:var(--card);border:1px solid var(--line);border-radius:20px;padding:4px 10px;}
+  .ci-scale-hint{display:flex;justify-content:space-between;font-size:10.5px;color:var(--muted);margin-top:6px;}
+
   /* 감사일기 탭 */
   .grat-top{padding:26px 0 6px;}
   .grat-top h2{font-size:21px;margin:0;font-weight:700;letter-spacing:-.02em;}
@@ -458,6 +473,12 @@
       <span style="display:inline-flex;align-items:center;gap:4px;"><i style="width:11px;height:11px;border-radius:3px;background:#6E8A76;display:inline-block;"></i>5</span>
       <span style="color:var(--muted);">· 상태</span>
     </div>
+  </div>
+
+  <div class="card" id="checkinCard">
+    <div class="ct">마음 돌아보기 <span style="font-weight:500;color:var(--muted);font-size:12px;">· 주 1회 · 나만 봐요</span></div>
+    <div class="cd">일요일마다 한 주의 마음을 조용히 돌아봐요. 점수도 등수도 없어요. 그저 나의 결.</div>
+    <div id="checkinBody"><div class="center">불러오는 중…</div></div>
   </div>
 
   <div class="card">
@@ -1216,6 +1237,7 @@ function postEl(it){
 /* ---------------- 나 ---------------- */
 function loadMe(){
   if(!viewYm) viewYm=(currentDate||'').slice(0,7);
+  loadCheckin();
   var now=Date.now();
   if(tcache.me.data && tcache.me.ym===viewYm && (now-tcache.me.t)<CACHE_TTL){ renderMeBundle(tcache.me.data); return; }
   if(tcache.me.data && tcache.me.ym===viewYm){ renderMeBundle(tcache.me.data); }
@@ -1442,6 +1464,164 @@ function analysisLine(label, avg, n, cls){
   return '<div class="an-line"><span class="an-key">'+label+'</span>'+
     '<span class="an-track"><span class="an-fill '+cls+'" style="width:'+pct+'%"></span></span>'+
     '<span class="an-val">'+avg.toFixed(1)+' · '+n+'일</span></div>';
+}
+
+/* ---------------- 마음 돌아보기 (주간 자가점검) ---------------- */
+var CHECKIN_SECTIONS=[
+  { name:'편도체 안정화', short:'편도체 안정', items:[
+    '긴장되거나 불안할 때, 호흡이나 몸을 통해 진정시킬 수 있었다',
+    '몸에 힘이 들어간 것을 알아차리고 풀어줄 수 있었다',
+    '충분히 자고 쉬어서 몸이 편안했다',
+    '조급함이나 초조함 없이 여유로운 순간이 있었다',
+    '안전하고 편안하다고 느껴지는 시간이 있었다'
+  ]},
+  { name:'전전두피질 활성화', short:'전전두 활성', items:[
+    '오늘 내 감정과 생각을 한 걸음 떨어져 바라볼 수 있었다',
+    '내가 바라는 삶의 방향을 떠올리며 작은 선택을 했다',
+    '당연하게 여기던 것에서 고마움을 발견했다',
+    '누군가의 어려움에 마음을 기울이거나 다정함을 건넸다',
+    '아쉬움이나 미움을 조금 내려놓고, 있는 그대로 받아들였다'
+  ]}
+];
+function checkinQuestions(){ var a=[]; CHECKIN_SECTIONS.forEach(function(s){ s.items.forEach(function(q){ a.push(q); }); }); return a; }
+var CHECKIN_TOTAL=10;
+var checkinAnswers=[]; // 길이 10, 값 1~5 또는 0
+var checkinItems=[];   // 서버에서 온 과거 회차
+
+function isoWeekKey(dt){
+  var d=new Date(Date.UTC(dt.getFullYear(),dt.getMonth(),dt.getDate()));
+  var day=d.getUTCDay()||7; d.setUTCDate(d.getUTCDate()+4-day);
+  var yearStart=new Date(Date.UTC(d.getUTCFullYear(),0,1));
+  var wk=Math.ceil((((d-yearStart)/86400000)+1)/7);
+  return d.getUTCFullYear()+'-W'+String(wk).padStart(2,'0');
+}
+function thisWeekKey(){ return isoWeekKey(new Date((currentDate||localToday())+'T00:00:00')); }
+function weekLabel(wk){
+  var m=/^(\d{4})-W(\d{2})$/.exec(wk); if(!m) return wk;
+  return m[1]+'년 '+parseInt(m[2],10)+'주차';
+}
+function checkinBand(avg){
+  if(avg>=4.2) return { msg:'이번 주, 스스로에게 많이 친절했네요. 🌱', emoji:'🌱' };
+  if(avg>=3.4) return { msg:'이번 주도 나를 돌보며 걸어왔네요.', emoji:'🌿' };
+  if(avg>=2.6) return { msg:'고단한 한 주였을지도 몰라요. 돌아본 것만으로 충분해요.', emoji:'🍃' };
+  return { msg:'많이 힘든 한 주였네요. 이렇게 돌아본 당신에게 따뜻함을 보내요.', emoji:'🤍' };
+}
+function loadCheckin(){
+  var box=document.getElementById('checkinBody');
+  box.innerHTML='<div class="center">불러오는 중…</div>';
+  gcall('getCheckins',[session.nickname],function(res){
+    checkinItems=(res&&res.items)||[];
+    renderCheckin();
+  },function(){ box.innerHTML='<div class="center">잠시 후 다시 시도해 주세요.</div>'; });
+}
+function findCheckin(wk){ for(var i=0;i<checkinItems.length;i++){ if(checkinItems[i].week===wk) return checkinItems[i]; } return null; }
+function renderCheckin(){
+  var box=document.getElementById('checkinBody');
+  var wk=thisWeekKey();
+  var done=findCheckin(wk);
+  var isSun=new Date((currentDate||localToday())+'T00:00:00').getDay()===0;
+  if(done){
+    // 이번 주 완료 → 결과 + 다시하기
+    box.innerHTML=checkinResultHtml(done.scores)+
+      '<button class="btn ghost" id="ciRedo" style="margin-top:12px;">다시 돌아보기</button>'+
+      checkinFlowHtml();
+    document.getElementById('ciRedo').addEventListener('click',function(){ startCheckin(); });
+    return;
+  }
+  // 아직 안 함
+  var hint = isSun ? '오늘은 일요일이에요. 이번 주 마음을 돌아볼까요?' : '이번 주는 아직 돌아보지 않았어요. 원할 때 언제든 좋아요.';
+  box.innerHTML='<div style="font-size:13.5px;color:var(--ink-2);margin-bottom:12px;line-height:1.6;">'+hint+'</div>'+
+    '<button class="btn sage" id="ciStart">이번 주 마음 돌아보기</button>'+checkinFlowHtml();
+  document.getElementById('ciStart').addEventListener('click',function(){ startCheckin(); });
+}
+function startCheckin(){
+  checkinAnswers=new Array(CHECKIN_TOTAL).fill(0);
+  var box=document.getElementById('checkinBody');
+  var html=''; var qi=0;
+  CHECKIN_SECTIONS.forEach(function(sec){
+    html+='<div class="ci-sec">'+sec.name+'</div>';
+    sec.items.forEach(function(q){
+      html+='<div class="ci-q" data-qi="'+qi+'"><div class="ci-qt">'+(qi+1)+'. '+escapeHtml(q)+'</div>'+
+        '<div class="ci-scale">';
+      for(var v=1;v<=5;v++) html+='<button class="ci-dot" data-v="'+v+'">'+v+'</button>';
+      html+='</div><div class="ci-scale-hint"><span>전혀 아니다</span><span>매우 그렇다</span></div></div>';
+      qi++;
+    });
+  });
+  html+='<button class="btn sage" id="ciSubmit" style="margin-top:8px;">돌아보기 마치기</button>'+
+        '<button class="btn ghost" id="ciCancel" style="margin-top:8px;">취소</button>'+
+        '<div class="status" id="ciStatus" style="text-align:left;"></div>';
+  box.innerHTML=html;
+  box.querySelectorAll('.ci-q').forEach(function(qEl){
+    var idx=parseInt(qEl.getAttribute('data-qi'),10);
+    qEl.querySelectorAll('.ci-dot').forEach(function(dot){
+      dot.addEventListener('click',function(){
+        checkinAnswers[idx]=parseInt(dot.getAttribute('data-v'),10);
+        qEl.querySelectorAll('.ci-dot').forEach(function(d){ d.classList.remove('on'); });
+        dot.classList.add('on');
+      });
+    });
+  });
+  document.getElementById('ciSubmit').addEventListener('click', submitCheckin);
+  document.getElementById('ciCancel').addEventListener('click', function(){ renderCheckin(); });
+}
+function submitCheckin(){
+  var st=document.getElementById('ciStatus');
+  for(var i=0;i<CHECKIN_TOTAL;i++){ if(!checkinAnswers[i]){ st.textContent=(i+1)+'번 문항에 답해 주세요.'; return; } }
+  st.textContent='저장하는 중…';
+  var wk=thisWeekKey();
+  gcall('saveCheckin',[session.nickname, wk, checkinAnswers],function(res){
+    if(res&&res.ok){ loadCheckin(); }
+    else st.textContent=(res&&res.msg)||'저장이 안 됐어요. 다시 시도해 주세요.';
+  },function(){ st.textContent='연결이 잠시 불안정해요.'; });
+}
+function axisAverages(scores){
+  var out=[]; var idx=0;
+  CHECKIN_SECTIONS.forEach(function(sec){
+    var s=0,c=0; sec.items.forEach(function(){ var v=scores[idx]; if(v>=1&&v<=5){ s+=v; c++; } idx++; });
+    out.push(c?s/c:0);
+  });
+  return out; // [편도체, 전전두]
+}
+function axisBar(label, avg, cls){
+  var pct=Math.max(4,Math.round(avg/5*100));
+  return '<div style="margin-bottom:10px;">'+
+    '<div style="display:flex;justify-content:space-between;font-size:12.5px;margin-bottom:5px;">'+
+      '<span style="font-weight:600;color:var(--ink-2);">'+label+'</span>'+
+      '<span style="color:var(--muted);">'+avg.toFixed(1)+' / 5</span></div>'+
+    '<div class="an-track"><span class="an-fill '+cls+'" style="width:'+pct+'%"></span></div></div>';
+}
+function checkinResultHtml(scores){
+  var ax=axisAverages(scores);
+  var overall=(ax[0]+ax[1])/2;
+  var band=checkinBand(overall);
+  var html='<div class="ci-result">'+
+    '<div class="msg">'+band.msg+'</div>'+
+    '<div style="margin-top:14px;text-align:left;">'+
+      axisBar('편도체 안정화', ax[0], 'done')+
+      axisBar('전전두피질 활성화', ax[1], 'done')+
+    '</div>';
+  var diff=ax[0]-ax[1];
+  var note='';
+  if(Math.abs(diff)>=0.6){
+    note = diff>0 ? '이번 주는 마음을 진정시키는 결이 두터웠어요. 전전두피질 활성화(돌아봄·의미)에 한 걸음 더 내어줘도 좋아요.'
+                  : '이번 주는 돌아보고 의미를 찾는 결이 두터웠어요. 편도체 안정화(쉼·호흡)에 조금 더 머물러도 좋아요.';
+  } else {
+    note = '두 결이 고르게 함께한 한 주였어요.';
+  }
+  html+='<div class="sub" style="text-align:left;">'+note+'</div></div>';
+  return html;
+}
+function checkinFlowHtml(){
+  if(checkinItems.length===0) return '';
+  var rows=checkinItems.slice(0,8).map(function(it){
+    var ax=axisAverages(it.scores);
+    return '<div style="display:flex;align-items:center;gap:8px;font-size:12px;padding:6px 0;border-top:1px solid var(--line);">'+
+      '<span style="flex:0 0 84px;color:var(--muted);">'+weekLabel(it.week)+'</span>'+
+      '<span style="flex:1;color:var(--ink-2);">편도체 <b style="color:var(--sage);">'+ax[0].toFixed(1)+'</b></span>'+
+      '<span style="flex:1;color:var(--ink-2);">전전두 <b style="color:#6B7A88;">'+ax[1].toFixed(1)+'</b></span></div>';
+  }).join('');
+  return '<div style="font-size:12px;color:var(--muted);margin:16px 0 2px;">지난 돌아봄 · 두 결의 흐름 (나만 봐요)</div>'+rows;
 }
 
 /* ---------------- 수면 · 존2 기록 ---------------- */
