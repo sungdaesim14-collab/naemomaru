@@ -81,6 +81,8 @@
   .breathe-cta svg{width:17px;height:17px;}
   .pastbar{display:flex;align-items:center;justify-content:space-between;gap:8px;background:#F2ECDD;border:1px solid #E4D8BE;border-radius:12px;padding:10px 14px;margin:0 0 14px;font-size:13.5px;color:#7A6A3E;font-weight:600;}
   .pastbar button{border:none;background:#B79A6B;color:#fff;border-radius:20px;padding:6px 13px;font-size:12.5px;font-weight:600;}
+  .sunday-cta{width:100%;display:flex;align-items:center;justify-content:space-between;gap:8px;background:var(--sage-soft);border:1px solid #CFDBCF;border-radius:12px;padding:12px 15px;margin:0 0 14px;font-size:13.5px;font-weight:600;color:#41513F;text-align:left;}
+  .sunday-cta .arrow{font-size:18px;color:var(--sage);}
   .cell.editable{cursor:pointer;}
   .cell.editable::after{content:'';position:absolute;top:3px;right:3px;width:4px;height:4px;border-radius:50%;background:var(--sage);opacity:.75;}  #breatheView{position:fixed;inset:0;z-index:50;background:linear-gradient(180deg,#EEF2ED,#E3EAE3);display:flex;align-items:center;justify-content:center;}
   #breatheClose{position:absolute;top:16px;right:18px;background:none;border:none;font-size:22px;color:var(--muted);width:40px;height:40px;}
@@ -378,6 +380,11 @@
     <span id="pastBarLabel"></span>
     <button id="backToToday">오늘로 돌아가기</button>
   </div>
+
+  <button class="sunday-cta hidden" id="sundayCta">
+    <span>🌿 오늘은 돌아보는 일요일 · 이번 주 마음 돌아보기</span>
+    <span class="arrow">›</span>
+  </button>
 
   <div class="card admin hidden" id="dayAdminCard" style="margin:0 0 14px;">
     <div class="ct">오늘의 내면소통 등록 <span style="font-weight:500;color:var(--muted);font-size:12px;">· 관리자</span></div>
@@ -841,6 +848,9 @@ function enterApp(fromLogin){
     if(painted && !dirty) document.getElementById('saveStatus').textContent='';
     setTimeout(function(){ prefetchWall(); prefetchMe(); }, 1200);
   },function(){ if(!painted) loadDay(''); });
+  if(new Date(localToday()+'T00:00:00').getDay()===0){
+    gcall('getCheckins',[session.nickname],function(res){ checkinItems=(res&&res.items)||[]; updateSundayCta(); });
+  }
   if(fromLogin) maybeAutoA2HS();
 }
 function isStandalone(){
@@ -902,6 +912,15 @@ function updateDayContext(){
     document.getElementById('dayAdminCard').classList.add('hidden');
   }
   document.getElementById('breatheBtn').classList.toggle('hidden', past);
+  updateSundayCta();
+}
+function updateSundayCta(){
+  var cta=document.getElementById('sundayCta');
+  if(!cta) return;
+  var isSun=new Date((currentDate||localToday())+'T00:00:00').getDay()===0;
+  var past = !!(currentDate && currentDate!==localToday());
+  var doneThisWeek = !!findCheckin(thisWeekKey());
+  cta.classList.toggle('hidden', !(isSun && !past && !doneThisWeek));
 }
 function openPastDay(ds){
   if(ds===localToday()){ backToToday(); return; }
@@ -1470,21 +1489,17 @@ function analysisLine(label, avg, n, cls){
 var CHECKIN_SECTIONS=[
   { name:'편도체 안정화', short:'편도체 안정', items:[
     '긴장되거나 불안할 때, 호흡이나 몸을 통해 진정시킬 수 있었다',
-    '몸에 힘이 들어간 것을 알아차리고 풀어줄 수 있었다',
     '충분히 자고 쉬어서 몸이 편안했다',
-    '조급함이나 초조함 없이 여유로운 순간이 있었다',
     '안전하고 편안하다고 느껴지는 시간이 있었다'
   ]},
   { name:'전전두피질 활성화', short:'전전두 활성', items:[
     '오늘 내 감정과 생각을 한 걸음 떨어져 바라볼 수 있었다',
-    '내가 바라는 삶의 방향을 떠올리며 작은 선택을 했다',
     '당연하게 여기던 것에서 고마움을 발견했다',
-    '누군가의 어려움에 마음을 기울이거나 다정함을 건넸다',
-    '아쉬움이나 미움을 조금 내려놓고, 있는 그대로 받아들였다'
+    '누군가를 너그럽게 이해하거나 다정함을 건넸다'
   ]}
 ];
 function checkinQuestions(){ var a=[]; CHECKIN_SECTIONS.forEach(function(s){ s.items.forEach(function(q){ a.push(q); }); }); return a; }
-var CHECKIN_TOTAL=10;
+var CHECKIN_TOTAL=checkinQuestions().length;
 var checkinAnswers=[]; // 길이 10, 값 1~5 또는 0
 var checkinItems=[];   // 서버에서 온 과거 회차
 
@@ -1969,6 +1984,10 @@ document.getElementById('breatheBtn').addEventListener('click', openBreathe);
 document.getElementById('breatheClose').addEventListener('click', closeBreathe);
 document.getElementById('breatheDone').addEventListener('click', closeBreathe);
 document.getElementById('backToToday').addEventListener('click', backToToday);
+document.getElementById('sundayCta').addEventListener('click',function(){
+  showTab('me');
+  setTimeout(function(){ var c=document.getElementById('checkinCard'); if(c) c.scrollIntoView({behavior:'smooth',block:'start'}); }, 350);
+});
 document.getElementById('sugSend').addEventListener('click', sendSuggestion);
 document.getElementById('pastInfoBtn').addEventListener('click',function(){
   var box=document.getElementById('pastInfoBox');
