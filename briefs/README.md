@@ -90,4 +90,6 @@ SK지오센트릭, S-Oil, GS칼텍스, H&L Advanced, 효성, 코오롱, 태광
 
 ## 아카이브
 
-`briefs/YYYY-MM-DD.html`
+발행된 브리프는 Claude Artifact 갤러리(claude.ai/code/artifacts)에 1일 1건씩
+`Chemical Tanker Daily Brief M.D` 제목으로 누적된다. 이 리포지토리는 발행 사양만
+관리하며 브리프 원본 HTML은 복제하지 않는다.
