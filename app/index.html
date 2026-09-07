@@ -211,9 +211,10 @@ h1,h2,h3{margin:0;font-weight:700;letter-spacing:-.022em;}
 /* 판정 지표. 통증은 낮을수록 좋으므로 dir:-1.
    band = 의미 있다고 볼 최소 차이 (통증 NRS의 임상적 최소중요차이는 약 2점) */
 const METRICS = {
-  energy:{name:'에너지 점수', unit:'점', dir:1,  band:3,   max:100, source:'삼성헬스 · 갤럭시 링'},
-  back:  {name:'허리 통증',   unit:'',   dir:-1, band:1.5, max:10,  source:'직접 기록 (0–10)'},
-  knee:  {name:'무릎 통증',   unit:'',   dir:-1, band:1.5, max:10,  source:'직접 기록 (0–10)'},
+  energy:{name:'에너지 점수', unit:'점', dir:1,  band:3,    max:100,   source:'삼성헬스 · 갤럭시 링'},
+  back:  {name:'허리 통증',   unit:'',   dir:-1, band:1.5,  max:10,    source:'직접 기록 (0–10)'},
+  knee:  {name:'무릎 통증',   unit:'',   dir:-1, band:1.5,  max:10,    source:'직접 기록 (0–10)'},
+  steps: {name:'걸음수',      unit:'보', dir:1,  band:1000, max:15000, source:'갤럭시 워치'},
 };
 
 const EVIDENCE = {
@@ -226,6 +227,7 @@ const EVIDENCE = {
   walkBack:{grade:'solid', text:'걷기 프로그램만으로 허리 통증 재발까지 걸린 기간이 112일에서 208일로 늘었습니다. 701명을 대상으로 한 무작위 대조시험입니다.', src:'WalkBack 시험, Lancet, 2024', reviewed:'2026.09'},
   sitBreak:{grade:'open', text:'오래 앉아 있는 시간을 중간중간 끊어주면 허리 부담과 혈액순환에 도움이 된다는 보고가 쌓이고 있습니다. 다만 통증 감소에 대한 근거는 걷기만큼 강하지 않습니다.', src:'좌식시간 중단 개입 연구', reviewed:'2026.09'},
   kneeExercise:{grade:'solid', text:'무릎 통증에 대한 운동치료는 약물에 준하는 1차 치료입니다. 54개 시험 5,362명을 모은 코크란 리뷰에서 통증 개선 효과크기 0.49가 확인됐고, 효과는 대략 2개월에 정점에 이릅니다.', src:'Fransen et al., Cochrane Review, 2015', reviewed:'2026.09'},
+  steps7k:{grade:'solid', text:'하루 7,000보에서 사망·심혈관질환·치매·우울·2형당뇨 위험이 모두 뚜렷하게 낮아집니다. 그 이상 걸어도 이득은 완만해집니다. 흔히 말하는 1만 보는 연구에서 나온 숫자가 아닙니다.', src:'Ding et al., Lancet Public Health, 2025 (용량-반응 메타분석)', reviewed:'2026.09'},
   strength:{grade:'solid', text:'주 2회 정도의 근력 자극만으로도 전체 사망 위험이 낮아졌습니다. 악력은 39세까지 오르다 40세부터 떨어지기 시작합니다.', src:'저항운동-사망률 메타분석 / 국민체력100', reviewed:'2026.09'},
 };
 
@@ -265,8 +267,9 @@ const HYPOTHESES = {
   /* ── 허리 ── */
   h_walkBack:{suspect:'걷기 부족', metric:'back',
     claim:'허리 통증에 가장 근거가 강한 개입은 약이나 스트레칭이 아니라 걷기입니다.',
-    rx:'하루 20분 걷기', when:'저녁 먹고 나서 → 동네 한 바퀴',
-    expect:'허리 통증 점수가 내려갑니다', ev:'walkBack', triggers:['back']},
+    rx:'하루 7,000보 걷기', when:'저녁 먹고 나서 → 동네 한 바퀴',
+    dose:{key:'steps', target:7000},
+    expect:'허리 통증 점수가 내려갑니다', ev:['walkBack','steps7k'], triggers:['back']},
 
   h_sitBreak:{suspect:'오래 앉아 있기', metric:'back',
     claim:'허리 통증이 앉아 있는 시간의 길이 때문일 수 있습니다.',
@@ -307,7 +310,7 @@ let S = restore();
 function restore(){
   try{ const r=JSON.parse(localStorage.getItem(KEY)); if(r && r.ready) return r; }catch(e){}
   return {ready:false, birthYear:null, targetAge:100, complaints:[],
-          track:{back:false, knee:false}, trial:null, past:[], logs:{}};
+          track:{steps:true, back:false, knee:false}, trial:null, past:[], logs:{}};
 }
 function persist(){ try{ localStorage.setItem(KEY, JSON.stringify(S)); }catch(e){} }
 
@@ -315,7 +318,7 @@ const dkey = d => { d=d||new Date();
   return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); };
 const shift = n => { const d=new Date(); d.setDate(d.getDate()+n); return dkey(d); };
 function log(k){ k=k||dkey();
-  if(!S.logs[k]) S.logs[k]={energy:null, back:null, knee:null, did:null};
+  if(!S.logs[k]) S.logs[k]={energy:null, steps:null, back:null, knee:null, did:null};
   return S.logs[k]; }
 
 const age = () => S.birthYear ? (new Date().getFullYear() - S.birthYear) : null;
@@ -327,7 +330,7 @@ function pickHypothesis(){
   const tried = new Set(S.past.map(p => p.id));
   const usable = id => {
     const m = HYPOTHESES[id].metric;
-    return m === 'energy' ? true : !!S.track[m];
+    return (m === 'energy' || m === 'steps') ? true : !!S.track[m];
   };
   const pool = Object.keys(HYPOTHESES).filter(id => !tried.has(id) && usable(id));
   const scored = pool
@@ -347,19 +350,47 @@ function trialState(){
   for(let i = 0; i <= Math.min(elapsed, S.trial.days - 1); i++){
     const d = new Date(start); d.setDate(d.getDate() + i);
     const k = dkey(d);
-    entries.push({k, ...(S.logs[k] || {energy:null, back:null, knee:null, did:null})});
+    entries.push({k, ...(S.logs[k] || {energy:null, steps:null, back:null, knee:null, did:null})});
   }
   return {day: Math.min(elapsed + 1, S.trial.days), elapsed, entries, done: elapsed + 1 > S.trial.days};
+}
+
+/* 처방을 지켰는가.
+   용량(dose)이 있는 처방은 기억이 아니라 기기가 잰 숫자로 판단합니다. */
+function complied(e, H){
+  if(H.dose){
+    const v = e[H.dose.key];
+    return v == null ? null : v >= H.dose.target;
+  }
+  return e.did;
+}
+
+/* 용량-반응 — 용량이 있는 처방에서만.
+   날들을 용량 크기로 3등분해 각 구간의 결과를 봅니다.
+   "지켰다/못 지켰다"보다 강한 증거입니다. 기울기가 보이니까요. */
+function doseResponse(entries, H){
+  const dk = H.dose.key, mk = H.metric;
+  const rows = entries.filter(e => e[dk] != null && e[mk] != null)
+                      .sort((a,b) => a[dk] - b[dk]);
+  if(rows.length < 9) return null;               // 구간당 3일은 있어야 합니다
+  const cut = Math.floor(rows.length / 3);
+  const parts = [rows.slice(0, cut), rows.slice(cut, rows.length - cut), rows.slice(rows.length - cut)];
+  const avg = a => a.reduce((x,y) => x+y, 0) / a.length;
+  return parts.map((p, i) => ({
+    label: ['적게 걸은 날','중간','많이 걸은 날'][i],
+    lo: p[0][dk], hi: p[p.length-1][dk], n: p.length,
+    out: avg(p.map(e => e[mk])),
+  }));
 }
 
 /* 판정 — 처방을 지킨 날과 못 지킨 날의 지표를 비교합니다.
    dir가 -1인 지표(통증)는 낮아지는 것이 개선입니다.
    데이터가 모자라면 모자라다고 말합니다. */
-function verdict(entries, metricKey){
-  const M = METRICS[metricKey];
+function verdict(entries, H){
+  const metricKey = H.metric, M = METRICS[metricKey];
   const val = e => e[metricKey];
-  const on  = entries.filter(e => e.did === true  && val(e) != null).map(val);
-  const off = entries.filter(e => e.did === false && val(e) != null).map(val);
+  const on  = entries.filter(e => complied(e, H) === true  && val(e) != null).map(val);
+  const off = entries.filter(e => complied(e, H) === false && val(e) != null).map(val);
   const avg = a => a.reduce((x,y) => x+y, 0) / a.length;
 
   if(on.length < 4)
@@ -405,9 +436,11 @@ function gradeBadge(ev){
   return `<span class="grade ${e.grade}"><span class="d" aria-hidden="true"></span>${e.grade==='solid'?'근거 탄탄':'유망하지만 예비적'}</span>`;
 }
 function evidenceBlock(ev){
-  const e = EVIDENCE[ev];
-  return `<div class="why">${gradeBadge(ev)}<div>${esc(e.text)}</div>
-    <cite>${esc(e.src)} · ${esc(e.reviewed)} 검토</cite></div>`;
+  return (Array.isArray(ev) ? ev : [ev]).map(k => {
+    const e = EVIDENCE[k];
+    return `<div class="why">${gradeBadge(k)}<div>${esc(e.text)}</div>
+      <cite>${esc(e.src)} · ${esc(e.reviewed)} 검토</cite></div>`;
+  }).join('');
 }
 
 /* ── 온보딩 ────────────────────────────────────── */
@@ -485,7 +518,7 @@ function renderOnboard(){
   S.complaints = draft.complaints.slice();
   S.track = {back: draft.complaints.includes('back'), knee: draft.complaints.includes('knee')};
   const id = pickHypothesis(), H = HYPOTHESES[id], M = METRICS[H.metric];
-  const daily = ['매일 아침 에너지 점수']
+  const daily = ['매일 아침 에너지 점수', '걸음수']
     .concat(S.track.back ? ['허리 통증 0–10'] : [])
     .concat(S.track.knee ? ['무릎 통증 0–10'] : [])
     .join(' · ');
@@ -556,6 +589,30 @@ function painBlock(key){
   </div>`;
 }
 
+/* 용량이 있는 처방 — 기억이 아니라 기기가 잰 숫자를 받습니다. */
+function doseControl(H, lg){
+  const M = METRICS[H.dose.key], v = lg[H.dose.key], target = H.dose.target;
+  if(v == null){
+    return `<div class="entry">
+        <input id="dose" type="number" inputmode="numeric" placeholder="––" min="0" max="60000"
+          onkeydown="if(event.key==='Enter')saveDose('${H.dose.key}')">
+        <span class="unit">${esc(M.unit)}</span></div>
+      <button class="btn" style="margin-top:.625rem" onclick="saveDose('${H.dose.key}')">기록</button>
+      <p class="dim" style="margin-top:.5rem">갤럭시 워치의 오늘 걸음수를 그대로 옮겨 적으세요.
+        목표는 ${fmt(target)}${esc(M.unit)}입니다.</p>`;
+  }
+  const pct = Math.min(100, (v / target) * 100);
+  const hit = v >= target;
+  return `<div class="readout">
+      <span class="v">${fmt(v)}</span><span class="u">${esc(M.unit)}</span>
+      <span class="delta ${hit?'good':''}" style="margin-left:auto">
+        ${hit ? '목표 달성' : `${fmt(target - v)}${esc(M.unit)} 남음`}</span></div>
+    <div class="track" style="margin-top:.75rem"><i style="width:${pct}%"></i></div>
+    <p class="dim" style="margin-top:.5rem">목표 ${fmt(target)}${esc(M.unit)} ·
+      숫자가 곧 이행 여부입니다. 따로 체크할 필요가 없습니다.</p>
+    <button class="btn link" style="text-align:left;padding-left:0" onclick="clearDose('${H.dose.key}')">다시 입력</button>`;
+}
+
 function viewToday(){
   const t = trialState();
   if(!t) return viewNoTrial();
@@ -582,6 +639,24 @@ function viewToday(){
       <button class="btn link" style="text-align:left;padding-left:0" onclick="clearEnergy()">다시 입력</button>`;
   }
 
+  // 걸음수는 처방이 걸음 기반이 아닐 때만 따로 받습니다 (그 경우엔 처방 칸이 겸합니다)
+  const stepsSection = (S.track.steps && !H.dose) ? `
+    <section class="card fade">
+      <div class="hd"><span class="tag">오늘 걸음수</span>
+        <span class="dim num">목표 ${fmt(7000)}보</span></div>
+      ${lg.steps == null ? `
+        <div class="entry">
+          <input id="dose" type="number" inputmode="numeric" placeholder="––" min="0" max="60000"
+            onkeydown="if(event.key==='Enter')saveDose('steps')">
+          <span class="unit">보</span></div>
+        <button class="btn" style="margin-top:.625rem" onclick="saveDose('steps')">기록</button>`
+      : `<div class="readout"><span class="v">${fmt(lg.steps)}</span><span class="u">보</span>
+          <span class="delta ${lg.steps>=7000?'good':''}" style="margin-left:auto">
+            ${lg.steps>=7000 ? '목표 달성' : `${fmt(7000-lg.steps)}보 남음`}</span></div>
+         <div class="track" style="margin-top:.75rem"><i style="width:${Math.min(100,(lg.steps/7000)*100)}%"></i></div>
+         <button class="btn link" style="text-align:left;padding-left:0" onclick="clearDose('steps')">다시 입력</button>`}
+    </section>` : '';
+
   const painSection = (S.track.back || S.track.knee) ? `
     <section class="card fade">
       <div class="hd"><span class="tag">오늘의 통증</span><span class="dim">0–10</span></div>
@@ -600,19 +675,21 @@ function viewToday(){
       ${energyBlock}
     </section>
 
+    ${stepsSection}
     ${painSection}
 
     <section class="card fade">
       <div class="hd"><span class="tag">오늘의 처방</span></div>
-      <div class="check ${lg.did===true?'on':''}">
+      <div class="check ${complied(lg, H)===true?'on':''}">
         <span class="box"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7"/></svg></span>
         <span class="g"><b>${esc(H.rx)}</b><br><span class="dim">${esc(H.when)}</span></span>
       </div>
-      <div style="display:flex;gap:.5rem">
-        <button class="btn ghost" style="flex:1" aria-pressed="${lg.did===true}" onclick="setDid(true)">지켰다</button>
-        <button class="btn ghost" style="flex:1" aria-pressed="${lg.did===false}" onclick="setDid(false)">못 지켰다</button>
-      </div>
-      <p class="dim" style="margin-top:.625rem">못 지킨 날도 데이터입니다. 정직하게 눌러야 판정이 정확해집니다.</p>
+      ${H.dose ? doseControl(H, lg) : `
+        <div style="display:flex;gap:.5rem">
+          <button class="btn ghost" style="flex:1" aria-pressed="${lg.did===true}" onclick="setDid(true)">지켰다</button>
+          <button class="btn ghost" style="flex:1" aria-pressed="${lg.did===false}" onclick="setDid(false)">못 지켰다</button>
+        </div>
+        <p class="dim" style="margin-top:.625rem">못 지킨 날도 데이터입니다. 정직하게 눌러야 판정이 정확해집니다.</p>`}
       ${evidenceBlock(H.ev)}
     </section>
 
@@ -655,8 +732,58 @@ function saveEnergy(){
   log().energy = v; persist(); paint();
 }
 function clearEnergy(){ log().energy = null; persist(); paint(); }
+function saveDose(key){
+  const v = Number($('#dose').value);
+  if(!(v >= 0 && v <= 60000)){ toast('걸음수를 확인해 주세요'); return; }
+  log()[key] = v; persist(); paint();
+}
+function clearDose(key){ log()[key] = null; persist(); paint(); }
 function setPain(key, v){ const l = log(); l[key] = (l[key] === v ? null : v); persist(); paint(); }
 function setDid(v){ const l = log(); l.did = (l.did === v ? null : v); persist(); paint(); }
+
+/* 용량-반응 패널 — 많이 할수록 좋아지는 기울기가 보이는지.
+   이분법 비교보다 강한 증거입니다. */
+function doseResponsePanel(entries, H){
+  const bands = doseResponse(entries, H);
+  const dM = METRICS[H.dose.key], mM = METRICS[H.metric];
+  if(!bands){
+    return `<div class="sec">용량-반응</div>
+      <section class="card"><p class="dim" style="margin:0">
+        걸음수와 ${esc(mM.name)}이(가) 함께 기록된 날이 9일 이상 모이면,
+        많이 걸을수록 좋아지는지 기울기를 보여드립니다.</p></section>`;
+  }
+  const outs = bands.map(b => b.out);
+  const lo = Math.min(...outs), hi = Math.max(...outs), span = hi - lo || 1;
+  const slope = (bands[2].out - bands[0].out) * mM.dir;   // 양수면 많이 할수록 개선
+
+  return `<div class="sec">용량-반응 · 많이 걸을수록?</div>
+    <section class="card">
+      ${bands.map(b => {
+        const w = 12 + ((b.out - lo) / span) * 88;
+        const good = (b.out - bands[0].out) * mM.dir >= 0;
+        return `<div style="padding:.5rem 0">
+          <div style="display:flex;justify-content:space-between;font-size:.8125rem;margin-bottom:.3125rem">
+            <span>${esc(b.label)}
+              <span class="dim num">${fmt(b.lo)}–${fmt(b.hi)}${esc(dM.unit)} · ${b.n}일</span></span>
+            <span class="num" style="font-weight:600">${b.out.toFixed(1)}${esc(mM.unit)}</span>
+          </div>
+          <div style="height:.5rem;background:var(--edge-2);border-radius:.25rem;overflow:hidden">
+            <div style="height:100%;width:${w}%;border-radius:.25rem;background:${good?'var(--green)':'var(--amber-dim)'}"></div>
+          </div></div>`;
+      }).join('')}
+      <p class="dim" style="margin-top:.75rem">
+        막대는 각 구간의 <b style="color:var(--fg-2)">${esc(mM.name)} 평균</b>입니다.
+        ${slope >= mM.band
+          ? `많이 걸은 날일수록 ${esc(mM.name)}이(가) 좋았습니다. 기울기가 보입니다.`
+          : slope <= -mM.band
+            ? `많이 걸은 날이 오히려 나빴습니다. 무리했을 가능성을 살펴보세요.`
+            : `아직 뚜렷한 기울기가 없습니다.`}
+      </p>
+      <p class="dim" style="margin-top:.375rem">
+        하루하루의 걸음수는 몸 상태에 따라 달라지기도 합니다.
+        기울기는 원인의 방향을 암시할 뿐, 그 자체로 증명은 아닙니다.</p>
+    </section>`;
+}
 
 /* ── 실험 ──────────────────────────────────────── */
 function viewTrial(){
@@ -666,10 +793,10 @@ function viewTrial(){
 
   if(t){
     const H = HYPOTHESES[S.trial.id], M = METRICS[H.metric];
-    const kept = t.entries.filter(e => e.did === true).length;
-    const missed = t.entries.filter(e => e.did === false).length;
+    const kept = t.entries.filter(e => complied(e, H) === true).length;
+    const missed = t.entries.filter(e => complied(e, H) === false).length;
     const logged = t.entries.filter(e => e[H.metric] != null).length;
-    const v = verdict(t.entries, H.metric);
+    const v = verdict(t.entries, H);
     const sign = x => (x > 0 ? '+' : '') + x.toFixed(1);
 
     cur = `<section class="card fade">
@@ -695,6 +822,8 @@ function viewTrial(){
           <p class="dim" style="margin-top:.625rem">의미 있다고 보는 최소 차이: ${M.band}${M.unit}</p>` : ''}
         ${!t.done ? `<p class="dim" style="margin-top:.75rem">${S.trial.days - t.day}일 뒤에 최종 판정합니다.</p>` : ''}
       </section>
+
+      ${H.dose ? doseResponsePanel(t.entries, H) : ''}
 
       <div class="sec">실험 기간 · ${esc(M.name)}</div>
       <section class="card">${sparkCard(H.metric, S.trial.days)}</section>
@@ -728,7 +857,7 @@ function viewTrial(){
 function closeTrial(){
   const t = trialState(); if(!t) return;
   const H = HYPOTHESES[S.trial.id];
-  const v = verdict(t.entries, H.metric);
+  const v = verdict(t.entries, H);
   S.past.push({id:S.trial.id, kind:v.kind, gain: v.gain != null ? v.gain : null, ended:dkey()});
   S.trial = null; persist(); go('today');
   toast(v.kind === 'works' ? '졸업. 다음 가설로.' : '기각. 다음 가설로.');
@@ -755,7 +884,7 @@ function viewMe(){
     <div class="sec">매일 기록할 항목</div>
     <section class="card">
       <div class="kv"><span>에너지 점수</span><span class="dim">항상 기록</span></div>
-      ${['back','knee'].map(k => `<div class="kv"><span>${esc(METRICS[k].name)}</span>
+      ${['steps','back','knee'].map(k => `<div class="kv"><span>${esc(METRICS[k].name)}</span>
         <button class="btn ghost" style="width:auto;padding:.375rem .75rem;font-size:.8125rem"
           aria-pressed="${S.track[k]}" onclick="toggleTrack('${k}')">${S.track[k]?'기록 중':'꺼짐'}</button></div>`).join('')}
       <p class="dim" style="margin-top:.625rem">통증을 기록하면 그 부위를 겨냥한 가설이 실험 후보에 들어옵니다.</p>
