@@ -66,6 +66,8 @@ h1,h2,h3{margin:0;font-weight:700;letter-spacing:-.022em;}
 
 .card{background:var(--panel);border:1px solid var(--edge-2);border-radius:1rem;padding:1.125rem;}
 .card + .card{margin-top:.75rem;}
+.card.alert{border-color:var(--amber);border-left-width:2px;}
+.card.good{border-color:var(--green);border-left-width:2px;}
 .hd{display:flex;align-items:baseline;justify-content:space-between;gap:.75rem;margin-bottom:.875rem;}
 
 .btn{display:block;width:100%;text-align:center;border-radius:.75rem;padding:1rem;font-size:.9688rem;
@@ -100,7 +102,6 @@ h1,h2,h3{margin:0;font-weight:700;letter-spacing:-.022em;}
   background:var(--raise);color:var(--fg-2);}
 .delta.good{color:var(--green);} .delta.bad{color:var(--red);}
 
-/* 통증 척도 0–10 (NRS) */
 .nrs{display:grid;grid-template-columns:repeat(11,1fr);gap:.1875rem;}
 .nrs button{height:2.5rem;border-radius:.375rem;background:var(--raise);border:1px solid var(--edge-2);
   font-family:var(--mono);font-size:.75rem;color:var(--fg-3);transition:.14s;padding:0;}
@@ -146,6 +147,16 @@ h1,h2,h3{margin:0;font-weight:700;letter-spacing:-.022em;}
 .kv:first-child{border-top:none;}
 .kv .k2{color:var(--fg-3);}
 
+.flags{margin:0;padding-left:1.125rem;font-size:.8125rem;line-height:1.8;color:var(--fg-2);}
+.flags li::marker{color:var(--red);}
+
+/* 스톱워치 */
+.clock{font-family:var(--mono);font-size:4rem;line-height:1;font-variant-numeric:tabular-nums;
+  text-align:center;padding:1.5rem 0 .5rem;}
+.stopwatch{width:100%;border-radius:1rem;padding:1.5rem;font-size:1.125rem;font-weight:700;
+  background:var(--amber);color:var(--on-amber);}
+.stopwatch.running{background:var(--red);color:#fff;}
+
 .tabs{position:fixed;left:0;right:0;bottom:0;z-index:10;background:color-mix(in srgb,var(--bg) 90%,transparent);
   backdrop-filter:blur(14px);border-top:1px solid var(--edge-2);}
 .tabs .in{max-width:var(--w);margin:0 auto;display:grid;grid-template-columns:repeat(3,1fr);}
@@ -186,8 +197,8 @@ h1,h2,h3{margin:0;font-weight:700;letter-spacing:-.022em;}
       <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 13h3l2.5-6 4 12 2.5-6h4"/></svg><span>오늘</span></button>
     <button data-tab="trial" onclick="go('trial')">
       <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 3v6.5L4.5 18a2 2 0 0 0 1.8 3h11.4a2 2 0 0 0 1.8-3L15 9.5V3"/><path d="M7.5 3h9M8 14h8"/></svg><span>실험</span></button>
-    <button data-tab="me" onclick="go('me')">
-      <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8" r="3.6"/><path d="M5 20c1-4 3.7-6 7-6s6 2 7 6"/></svg><span>나</span></button>
+    <button data-tab="body" onclick="go('body')">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="4.6" r="2.1"/><path d="M12 7v7M8 9.5h8M9.5 21l2.5-7 2.5 7"/></svg><span>몸</span></button>
   </div>
 </nav>
 
@@ -202,19 +213,33 @@ h1,h2,h3{margin:0;font-weight:700;letter-spacing:-.022em;}
    3. 앱은 정한다 — 고르라고 떠넘기지 않는다.
    4. 앱은 "효과 없었다"고 말할 수 있다 — 그래야 "효과 있었다"가 믿긴다.
    5. 앱은 체중을 먼저 묻지 않는다.
+   6. 앱은 아픈 날 밀어붙이지 않는다. 위험한 신호는 병원으로 보낸다.
    ═══════════════════════════════════════════════════════════ */
 
 /* ═══════════════════════════════════════════════════════════
    층1 · 콘텐츠 — 전부 데이터
    ═══════════════════════════════════════════════════════════ */
 
-/* 판정 지표. 통증은 낮을수록 좋으므로 dir:-1.
-   band = 의미 있다고 볼 최소 차이 (통증 NRS의 임상적 최소중요차이는 약 2점) */
+/* 매일 기록하는 지표. dir가 -1이면 낮아지는 것이 개선. */
 const METRICS = {
   energy:{name:'에너지 점수', unit:'점', dir:1,  band:3,    max:100,   source:'삼성헬스 · 갤럭시 링'},
+  steps: {name:'걸음수',      unit:'보', dir:1,  band:1000, max:15000, source:'갤럭시 워치'},
   back:  {name:'허리 통증',   unit:'',   dir:-1, band:1.5,  max:10,    source:'직접 기록 (0–10)'},
   knee:  {name:'무릎 통증',   unit:'',   dir:-1, band:1.5,  max:10,    source:'직접 기록 (0–10)'},
-  steps: {name:'걸음수',      unit:'보', dir:1,  band:1000, max:15000, source:'갤럭시 워치'},
+};
+
+/* 주에 한 번 재는 기능 측정.
+   40대의 절대 기준치는 학계에 정립돼 있지 않아 "몇 살 수준"은 말하지 않는다.
+   오직 자기 자신의 변화만 본다. */
+const MEASURES = {
+  sitStand:{name:'5회 일어서기', unit:'초', dir:-1, band:1,
+    what:'하체 힘과 순발력',
+    how:['등받이 있는 의자에 앉습니다','팔을 가슴에 모읍니다','완전히 일어섰다 앉기를 5번, 최대한 빠르게'],
+    safety:'중간에 어지럽거나 통증이 심해지면 즉시 멈추세요.'},
+  balance:{name:'눈 감고 한 발 서기', unit:'초', dir:1, band:3,
+    what:'균형과 몸의 위치 감각',
+    how:['벽이나 식탁 옆에 섭니다','한 발을 들고 눈을 감습니다','발이 땅에 닿거나 짚으면 멈춥니다'],
+    safety:'반드시 짚을 것이 있는 곳에서 하세요. 넘어질 수 있습니다.'},
 };
 
 const EVIDENCE = {
@@ -225,14 +250,14 @@ const EVIDENCE = {
   postMealWalk:{grade:'solid', text:'식후 10분 남짓 걷는 것만으로 식후 혈당이 눈에 띄게 덜 치솟습니다. 식곤증도 함께 줄어듭니다.', src:'식후 보행 임상시험 메타분석', reviewed:'2026.09'},
   alcohol:{grade:'solid', text:'술은 잠들기는 쉽게 하지만 후반부 수면을 부수고 심박을 밤새 올려둡니다. 반지가 이걸 가장 정확히 잡아냅니다.', src:'알코올-수면구조 실험연구', reviewed:'2026.09'},
   walkBack:{grade:'solid', text:'걷기 프로그램만으로 허리 통증 재발까지 걸린 기간이 112일에서 208일로 늘었습니다. 701명을 대상으로 한 무작위 대조시험입니다.', src:'WalkBack 시험, Lancet, 2024', reviewed:'2026.09'},
+  steps7k:{grade:'solid', text:'하루 7,000보에서 사망·심혈관질환·치매·우울·2형당뇨 위험이 모두 뚜렷하게 낮아집니다. 그 이상 걸어도 이득은 완만해집니다. 흔히 말하는 1만 보는 연구에서 나온 숫자가 아닙니다.', src:'Ding et al., Lancet Public Health, 2025', reviewed:'2026.09'},
   sitBreak:{grade:'open', text:'오래 앉아 있는 시간을 중간중간 끊어주면 허리 부담과 혈액순환에 도움이 된다는 보고가 쌓이고 있습니다. 다만 통증 감소에 대한 근거는 걷기만큼 강하지 않습니다.', src:'좌식시간 중단 개입 연구', reviewed:'2026.09'},
   kneeExercise:{grade:'solid', text:'무릎 통증에 대한 운동치료는 약물에 준하는 1차 치료입니다. 54개 시험 5,362명을 모은 코크란 리뷰에서 통증 개선 효과크기 0.49가 확인됐고, 효과는 대략 2개월에 정점에 이릅니다.', src:'Fransen et al., Cochrane Review, 2015', reviewed:'2026.09'},
-  steps7k:{grade:'solid', text:'하루 7,000보에서 사망·심혈관질환·치매·우울·2형당뇨 위험이 모두 뚜렷하게 낮아집니다. 그 이상 걸어도 이득은 완만해집니다. 흔히 말하는 1만 보는 연구에서 나온 숫자가 아닙니다.', src:'Ding et al., Lancet Public Health, 2025 (용량-반응 메타분석)', reviewed:'2026.09'},
   strength:{grade:'solid', text:'주 2회 정도의 근력 자극만으로도 전체 사망 위험이 낮아졌습니다. 악력은 39세까지 오르다 40세부터 떨어지기 시작합니다.', src:'저항운동-사망률 메타분석 / 국민체력100', reviewed:'2026.09'},
+  balanceTest:{grade:'open', text:'10초 한 발 서기를 못 하는 51~75세는 전체 사망 위험이 1.84배 높았습니다. 다만 이 연구는 중장년 이상이 대상이라, 더 젊은 나이에는 통과 여부가 아니라 눈을 감고 버티는 시간으로 재야 변화가 보입니다.', src:'Araujo et al., BJSM, 2022', reviewed:'2026.09'},
 };
 
-/* 가설 카탈로그 — 앱이 하나를 고릅니다. 사용자는 고르지 않습니다.
-   metric : 무엇으로 판정할 것인가 */
+/* 가설 카탈로그 — 앱이 하나를 고릅니다. 사용자는 고르지 않습니다. */
 const HYPOTHESES = {
   h_caffeine:{suspect:'오후의 카페인', metric:'energy',
     claim:'얕은 잠의 원인이 오후 카페인일 수 있습니다.',
@@ -280,12 +305,13 @@ const HYPOTHESES = {
   h_kneeStrength:{suspect:'하체 근력 부족', metric:'knee',
     claim:'무릎 통증의 1차 치료는 쉬는 것이 아니라 주변 근육을 쓰는 것입니다.',
     rx:'의자에서 일어섰다 앉기 10회', when:'양치하기 전 → 10회',
-    expect:'무릎 통증 점수가 내려갑니다. 효과는 보통 6~8주에 뚜렷해집니다', ev:'kneeExercise', triggers:['knee']},
+    expect:'무릎 통증이 내려가고 5회 일어서기가 빨라집니다. 효과는 보통 6~8주에 뚜렷해집니다',
+    ev:'kneeExercise', triggers:['knee']},
 
   h_strength:{suspect:'근력 하락 구간 진입', metric:'energy',
     claim:'악력과 하체 힘은 40세부터 떨어지기 시작합니다. 지금이 개입 가치가 가장 큰 시기입니다.',
     rx:'의자에서 일어섰다 앉기 10회', when:'양치하기 전 → 10회',
-    expect:'전반적인 활력이 오릅니다', ev:'strength', triggers:['weak','heavy']},
+    expect:'전반적인 활력이 오르고 5회 일어서기가 빨라집니다', ev:'strength', triggers:['weak','heavy']},
 };
 
 const COMPLAINTS = [
@@ -299,24 +325,36 @@ const COMPLAINTS = [
   {v:'digest', t:'소화가 불편하다',   s:''},
 ];
 
+/* 이런 신호는 앱이 다룰 문제가 아닙니다. */
+const RED_FLAGS = {
+  back:['다리로 찌릿하게 뻗치는 통증이나 저림','다리에 힘이 빠지는 느낌','대소변을 참거나 보기 어려움',
+        '가만히 누워 있어도, 특히 밤에 심해지는 통증','열이 나거나 이유 없이 체중이 줄 때','넘어지거나 부딪힌 뒤 생긴 통증'],
+  knee:['갑자기 붓고 열이 나며 빨개질 때','무릎이 꺾이거나 힘없이 풀릴 때','완전히 펴지거나 굽혀지지 않을 때',
+        '체중을 전혀 실을 수 없을 때','부딪힌 뒤 모양이 달라졌을 때'],
+};
+
 const TRIAL_DAYS = 14;
+const MEASURE_EVERY = 7;   // 일
+const PAIN_GUARD = 7;      // 이 이상이면 밀어붙이지 않습니다
 
 /* ═══════════════════════════════════════════════════════════
    층2 · 엔진
    ═══════════════════════════════════════════════════════════ */
-const KEY='naemomaru.v3';
+const KEY='naemomaru.v4';
 let S = restore();
 
 function restore(){
   try{ const r=JSON.parse(localStorage.getItem(KEY)); if(r && r.ready) return r; }catch(e){}
   return {ready:false, birthYear:null, targetAge:100, complaints:[],
-          track:{steps:true, back:false, knee:false}, trial:null, past:[], logs:{}};
+          track:{steps:true, back:false, knee:false},
+          trial:null, past:[], logs:{}, measures:[]};
 }
 function persist(){ try{ localStorage.setItem(KEY, JSON.stringify(S)); }catch(e){} }
 
 const dkey = d => { d=d||new Date();
   return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); };
 const shift = n => { const d=new Date(); d.setDate(d.getDate()+n); return dkey(d); };
+const daysBetween = (a,b) => Math.round((new Date(b+'T00:00:00') - new Date(a+'T00:00:00')) / 86400000);
 function log(k){ k=k||dkey();
   if(!S.logs[k]) S.logs[k]={energy:null, steps:null, back:null, knee:null, did:null};
   return S.logs[k]; }
@@ -324,8 +362,23 @@ function log(k){ k=k||dkey();
 const age = () => S.birthYear ? (new Date().getFullYear() - S.birthYear) : null;
 const daysLeft = () => { const a=age(); return a==null ? null : Math.round((S.targetAge - a) * 365.25); };
 
-/* 가설 선택 — 이미 시도했거나 건너뛴 것은 제외.
-   통증 가설은 그 부위를 실제로 기록 중일 때만 후보가 됩니다. */
+/* 오늘 통증이 높은가 — 높으면 밀어붙이지 않습니다. */
+function painToday(){
+  const l = log();
+  const vals = ['back','knee'].filter(k => S.track[k]).map(k => l[k]).filter(v => v != null);
+  return vals.length ? Math.max(...vals) : null;
+}
+const painHigh = () => { const p = painToday(); return p != null && p >= PAIN_GUARD; };
+
+/* 처방을 지켰는가. 용량이 있으면 기기가 잰 숫자로 판단합니다. */
+function complied(e, H){
+  if(H.dose){
+    const v = e[H.dose.key];
+    return v == null ? null : v >= H.dose.target;
+  }
+  return e.did;
+}
+
 function pickHypothesis(){
   const tried = new Set(S.past.map(p => p.id));
   const usable = id => {
@@ -344,51 +397,19 @@ function startTrial(id){ S.trial = {id, start:dkey(), days:TRIAL_DAYS}; persist(
 
 function trialState(){
   if(!S.trial) return null;
-  const start = new Date(S.trial.start + 'T00:00:00');
-  const elapsed = Math.floor((new Date(dkey()+'T00:00:00') - start) / 86400000);
+  const elapsed = daysBetween(S.trial.start, dkey());
   const entries = [];
   for(let i = 0; i <= Math.min(elapsed, S.trial.days - 1); i++){
-    const d = new Date(start); d.setDate(d.getDate() + i);
+    const d = new Date(S.trial.start + 'T00:00:00'); d.setDate(d.getDate() + i);
     const k = dkey(d);
     entries.push({k, ...(S.logs[k] || {energy:null, steps:null, back:null, knee:null, did:null})});
   }
   return {day: Math.min(elapsed + 1, S.trial.days), elapsed, entries, done: elapsed + 1 > S.trial.days};
 }
 
-/* 처방을 지켰는가.
-   용량(dose)이 있는 처방은 기억이 아니라 기기가 잰 숫자로 판단합니다. */
-function complied(e, H){
-  if(H.dose){
-    const v = e[H.dose.key];
-    return v == null ? null : v >= H.dose.target;
-  }
-  return e.did;
-}
-
-/* 용량-반응 — 용량이 있는 처방에서만.
-   날들을 용량 크기로 3등분해 각 구간의 결과를 봅니다.
-   "지켰다/못 지켰다"보다 강한 증거입니다. 기울기가 보이니까요. */
-function doseResponse(entries, H){
-  const dk = H.dose.key, mk = H.metric;
-  const rows = entries.filter(e => e[dk] != null && e[mk] != null)
-                      .sort((a,b) => a[dk] - b[dk]);
-  if(rows.length < 9) return null;               // 구간당 3일은 있어야 합니다
-  const cut = Math.floor(rows.length / 3);
-  const parts = [rows.slice(0, cut), rows.slice(cut, rows.length - cut), rows.slice(rows.length - cut)];
-  const avg = a => a.reduce((x,y) => x+y, 0) / a.length;
-  return parts.map((p, i) => ({
-    label: ['적게 걸은 날','중간','많이 걸은 날'][i],
-    lo: p[0][dk], hi: p[p.length-1][dk], n: p.length,
-    out: avg(p.map(e => e[mk])),
-  }));
-}
-
-/* 판정 — 처방을 지킨 날과 못 지킨 날의 지표를 비교합니다.
-   dir가 -1인 지표(통증)는 낮아지는 것이 개선입니다.
-   데이터가 모자라면 모자라다고 말합니다. */
+/* 판정 — 데이터가 모자라면 모자라다고 말합니다. */
 function verdict(entries, H){
-  const metricKey = H.metric, M = METRICS[metricKey];
-  const val = e => e[metricKey];
+  const M = METRICS[H.metric], val = e => e[H.metric];
   const on  = entries.filter(e => complied(e, H) === true  && val(e) != null).map(val);
   const off = entries.filter(e => complied(e, H) === false && val(e) != null).map(val);
   const avg = a => a.reduce((x,y) => x+y, 0) / a.length;
@@ -399,14 +420,26 @@ function verdict(entries, H){
     return {kind:'nocontrol', on:avg(on),
       msg:'거의 매일 지키셨습니다. 비교할 날이 부족해 원인은 못 가리지만, 지킨 날 평균은 아래와 같습니다.'};
 
-  const a = avg(on), b = avg(off);
-  const gain = (a - b) * M.dir;          // 양수면 개선
+  const a = avg(on), b = avg(off), gain = (a - b) * M.dir;
   if(gain >= M.band)  return {kind:'works',   on:a, off:b, gain, msg:`처방을 지킨 날의 ${M.name}이(가) 뚜렷하게 좋았습니다.`};
   if(gain <= -M.band) return {kind:'reverse', on:a, off:b, gain, msg:'오히려 지키지 않은 날이 좋았습니다. 이 가설은 기각합니다.'};
   return {kind:'none', on:a, off:b, gain, msg:'의미 있는 차이가 없었습니다. 이 가설은 기각하고 다음으로 넘어갑니다.'};
 }
 
-/* 최근 n일 지표 (없는 날은 null) */
+/* 용량-반응 — 많이 할수록 좋아지는 기울기가 있는가. */
+function doseResponse(entries, H){
+  const dk = H.dose.key, mk = H.metric;
+  const rows = entries.filter(e => e[dk] != null && e[mk] != null).sort((a,b) => a[dk] - b[dk]);
+  if(rows.length < 9) return null;
+  const cut = Math.floor(rows.length / 3);
+  const parts = [rows.slice(0, cut), rows.slice(cut, rows.length - cut), rows.slice(rows.length - cut)];
+  const avg = a => a.reduce((x,y) => x+y, 0) / a.length;
+  return parts.map((p, i) => ({
+    label:['적게 걸은 날','중간','많이 걸은 날'][i],
+    lo:p[0][dk], hi:p[p.length-1][dk], n:p.length, out:avg(p.map(e => e[mk])),
+  }));
+}
+
 function series(metricKey, n){
   const out = [];
   for(let i = n-1; i >= 0; i--){
@@ -417,22 +450,34 @@ function series(metricKey, n){
 }
 const mean = a => a.length ? a.reduce((x,y)=>x+y,0)/a.length : null;
 
+/* 주간 측정 */
+const lastMeasure = () => S.measures.length ? S.measures[S.measures.length-1] : null;
+function measureDue(){
+  const m = lastMeasure();
+  return !m || daysBetween(m.date, dkey()) >= MEASURE_EVERY;
+}
+function measureChange(key){
+  const withKey = S.measures.filter(m => m[key] != null);
+  if(withKey.length < 2) return null;
+  const first = withKey[0], last = withKey[withKey.length-1];
+  const M = MEASURES[key];
+  return {first:first[key], last:last[key], gain:(last[key]-first[key])*M.dir,
+          weeks:Math.max(1, Math.round(daysBetween(first.date, last.date)/7)), n:withKey.length};
+}
+
 /* ═══════════════════════════════════════════════════════════
    층3 · 화면
    ═══════════════════════════════════════════════════════════ */
 const $ = s => document.querySelector(s);
 const esc = s => String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 function toast(m){ const t=$('#toast'); t.textContent=m; t.classList.add('on');
-  clearTimeout(t._t); t._t=setTimeout(()=>t.classList.remove('on'), 1600); }
+  clearTimeout(t._t); t._t=setTimeout(()=>t.classList.remove('on'), 1700); }
 const fmt = n => n.toLocaleString('ko-KR');
+const sign = x => (x > 0 ? '+' : '') + x.toFixed(1);
 
-/* 통증 0(없음) → 10(최악) 을 초록→앰버→적색으로 */
-function painColor(v){
-  const hue = 145 - (v/10)*135;              // 145(초록) → 10(적)
-  return `hsl(${hue} 42% ${v===0?32:38}%)`;
-}
-function gradeBadge(ev){
-  const e = EVIDENCE[ev];
+function painColor(v){ return `hsl(${145 - (v/10)*135} 42% ${v===0?32:38}%)`; }
+function gradeBadge(k){
+  const e = EVIDENCE[k];
   return `<span class="grade ${e.grade}"><span class="d" aria-hidden="true"></span>${e.grade==='solid'?'근거 탄탄':'유망하지만 예비적'}</span>`;
 }
 function evidenceBlock(ev){
@@ -514,14 +559,12 @@ function renderOnboard(){
     return;
   }
 
-  /* 첫 처방 */
   S.complaints = draft.complaints.slice();
-  S.track = {back: draft.complaints.includes('back'), knee: draft.complaints.includes('knee')};
+  S.track = {steps:true, back: draft.complaints.includes('back'), knee: draft.complaints.includes('knee')};
   const id = pickHypothesis(), H = HYPOTHESES[id], M = METRICS[H.metric];
-  const daily = ['매일 아침 에너지 점수', '걸음수']
-    .concat(S.track.back ? ['허리 통증 0–10'] : [])
-    .concat(S.track.knee ? ['무릎 통증 0–10'] : [])
-    .join(' · ');
+  const daily = ['에너지 점수','걸음수']
+    .concat(S.track.back ? ['허리 통증'] : [])
+    .concat(S.track.knee ? ['무릎 통증'] : []).join(' · ');
 
   el.innerHTML = `<section class="step fade">
     <div><span class="tag">3 / 3 · 첫 실험</span>
@@ -535,7 +578,7 @@ function renderOnboard(){
       <div class="kv"><span class="k2">기간</span><span class="num">14일</span></div>
       <div class="kv"><span class="k2">판정 지표</span><span>${esc(M.name)}</span></div>
       <div class="kv"><span class="k2">매일 기록</span><span style="text-align:right">${esc(daily)}</span></div>
-      <div class="kv"><span class="k2">보는 것</span><span style="text-align:right">${esc(H.expect)}</span></div>
+      <div class="kv"><span class="k2">주 1회</span><span style="text-align:right">5회 일어서기 · 한 발 서기</span></div>
     </div>
     <div>
       <button class="btn amber" onclick="begin('${id}')">실험 시작</button>
@@ -559,7 +602,7 @@ function begin(id){
   S.ready = true;
   S.birthYear = Number(draft.birthYear);
   S.complaints = draft.complaints.slice();
-  S.track = {back: S.complaints.includes('back'), knee: S.complaints.includes('knee')};
+  S.track = {steps:true, back:S.complaints.includes('back'), knee:S.complaints.includes('knee')};
   startTrial(id);
   $('#onboard').classList.add('hide');
   $('#app').classList.remove('hide');
@@ -574,13 +617,11 @@ function painBlock(key){
   const avg7 = mean(week);
   const d = (v != null && week.length > 1) ? v - avg7 : null;
   return `<div class="pain-row">
-    <div class="lab">
-      <b>${esc(M.name)}</b>
+    <div class="lab"><b>${esc(M.name)}</b>
       ${v != null
         ? `<span class="num" style="font-size:.8125rem;color:var(--fg-2)">오늘 ${v}
-            ${d != null ? `<span class="delta ${d<0?'good':d>0?'bad':''}">7일 평균 대비 ${d>0?'+':''}${d.toFixed(1)}</span>` : ''}</span>`
-        : `<span class="dim">기록 전</span>`}
-    </div>
+            ${d != null ? `<span class="delta ${d<0?'good':d>0?'bad':''}">7일 평균 대비 ${sign(d)}</span>` : ''}</span>`
+        : `<span class="dim">기록 전</span>`}</div>
     <div class="nrs">
       ${Array.from({length:11}, (_,i) => `<button aria-pressed="${v===i}" aria-label="${esc(M.name)} ${i}점"
         style="${v===i?`background:${painColor(i)};`:''}" onclick="setPain('${key}',${i})">${i}</button>`).join('')}
@@ -589,112 +630,118 @@ function painBlock(key){
   </div>`;
 }
 
-/* 용량이 있는 처방 — 기억이 아니라 기기가 잰 숫자를 받습니다. */
-function doseControl(H, lg){
-  const M = METRICS[H.dose.key], v = lg[H.dose.key], target = H.dose.target;
-  if(v == null){
+function stepsCard(target){
+  const lg = log();
+  if(lg.steps == null){
     return `<div class="entry">
         <input id="dose" type="number" inputmode="numeric" placeholder="––" min="0" max="60000"
-          onkeydown="if(event.key==='Enter')saveDose('${H.dose.key}')">
-        <span class="unit">${esc(M.unit)}</span></div>
-      <button class="btn" style="margin-top:.625rem" onclick="saveDose('${H.dose.key}')">기록</button>
-      <p class="dim" style="margin-top:.5rem">갤럭시 워치의 오늘 걸음수를 그대로 옮겨 적으세요.
-        목표는 ${fmt(target)}${esc(M.unit)}입니다.</p>`;
+          onkeydown="if(event.key==='Enter')saveSteps()">
+        <span class="unit">보</span></div>
+      <button class="btn" style="margin-top:.625rem" onclick="saveSteps()">기록</button>
+      <p class="dim" style="margin-top:.5rem">갤럭시 워치의 오늘 걸음수를 그대로 옮겨 적으세요.</p>`;
   }
-  const pct = Math.min(100, (v / target) * 100);
-  const hit = v >= target;
-  return `<div class="readout">
-      <span class="v">${fmt(v)}</span><span class="u">${esc(M.unit)}</span>
+  const hit = lg.steps >= target;
+  return `<div class="readout"><span class="v">${fmt(lg.steps)}</span><span class="u">보</span>
       <span class="delta ${hit?'good':''}" style="margin-left:auto">
-        ${hit ? '목표 달성' : `${fmt(target - v)}${esc(M.unit)} 남음`}</span></div>
-    <div class="track" style="margin-top:.75rem"><i style="width:${pct}%"></i></div>
-    <p class="dim" style="margin-top:.5rem">목표 ${fmt(target)}${esc(M.unit)} ·
-      숫자가 곧 이행 여부입니다. 따로 체크할 필요가 없습니다.</p>
-    <button class="btn link" style="text-align:left;padding-left:0" onclick="clearDose('${H.dose.key}')">다시 입력</button>`;
+        ${hit ? '목표 달성' : `${fmt(target-lg.steps)}보 남음`}</span></div>
+    <div class="track" style="margin-top:.75rem"><i style="width:${Math.min(100,(lg.steps/target)*100)}%"></i></div>
+    <button class="btn link" style="text-align:left;padding-left:0" onclick="clearSteps()">다시 입력</button>`;
 }
 
 function viewToday(){
   const t = trialState();
   if(!t) return viewNoTrial();
   const H = HYPOTHESES[S.trial.id], M = METRICS[H.metric], lg = log();
+  const parts = [];
 
-  const e7 = series('energy', 7);
-  const known = e7.filter(v => v != null);
-  const avgE = known.length ? Math.round(mean(known)) : null;
+  parts.push(`<header class="top">
+    <div class="t1">실험 ${t.day}일차 · 남은 ${Math.max(0, S.trial.days - t.day)}일 · 판정 지표 ${esc(M.name)}</div>
+    <h2>${esc(H.suspect)}을(를) 확인하는 중</h2>
+    <div class="track" style="margin-top:.75rem"><i style="width:${(t.day/S.trial.days)*100}%"></i></div>
+  </header>`);
 
-  let energyBlock;
-  if(lg.energy == null){
-    energyBlock = `<div class="entry">
+  if(t.done){
+    parts.push(`<section class="card alert fade">
+      <div class="hd"><span class="tag">14일 완료</span></div>
+      <p style="margin:0 0 .875rem">실험이 끝났습니다. 결과를 확인하세요.</p>
+      <button class="btn amber" onclick="go('trial')">판정 보기</button></section>`);
+  }
+
+  if(measureDue()){
+    parts.push(`<section class="card alert fade">
+      <div class="hd"><span class="tag">주간 측정</span>
+        <span class="dim">${lastMeasure() ? daysBetween(lastMeasure().date, dkey())+'일 전 측정' : '아직 없음'}</span></div>
+      <p style="margin:0 0 .875rem;font-size:.875rem;color:var(--fg-2)">
+        2분이면 됩니다. 몸이 실제로 달라지고 있는지는 느낌이 아니라 이 숫자가 말해줍니다.</p>
+      <button class="btn amber" onclick="startMeasure()">측정하기</button></section>`);
+  }
+
+  parts.push(`<section class="card fade">
+    <div class="hd"><span class="tag">오늘 아침 에너지 점수</span></div>
+    ${lg.energy == null ? `
+      <div class="entry">
         <input id="sc" type="number" inputmode="numeric" placeholder="––" min="1" max="100"
           onkeydown="if(event.key==='Enter')saveEnergy()">
         <span class="unit">점</span></div>
       <button class="btn" style="margin-top:.625rem" onclick="saveEnergy()">기록</button>
-      <p class="dim" style="margin-top:.5rem">삼성헬스 · 갤럭시 링의 에너지 점수를 그대로 옮겨 적으세요.</p>`;
-  }else{
-    const d = (avgE != null && known.length > 1) ? lg.energy - avgE : null;
-    energyBlock = `<div class="readout">
-        <span class="v">${lg.energy}</span><span class="u">점</span>
-        ${d != null ? `<span class="delta ${d>0?'good':d<0?'bad':''}" style="margin-left:auto">
-          7일 평균 대비 ${d>0?'+':''}${d}</span>` : ''}</div>
-      <button class="btn link" style="text-align:left;padding-left:0" onclick="clearEnergy()">다시 입력</button>`;
+      <p class="dim" style="margin-top:.5rem">삼성헬스 · 갤럭시 링의 에너지 점수를 그대로 옮겨 적으세요.</p>`
+    : (() => {
+        const known = series('energy',7).filter(v => v!=null);
+        const avgE = known.length ? Math.round(mean(known)) : null;
+        const d = (avgE != null && known.length > 1) ? lg.energy - avgE : null;
+        return `<div class="readout"><span class="v">${lg.energy}</span><span class="u">점</span>
+          ${d != null ? `<span class="delta ${d>0?'good':d<0?'bad':''}" style="margin-left:auto">7일 평균 대비 ${d>0?'+':''}${d}</span>` : ''}</div>
+          <button class="btn link" style="text-align:left;padding-left:0" onclick="clearEnergy()">다시 입력</button>`;
+      })()}
+  </section>`);
+
+  if(S.track.steps){
+    const target = H.dose ? H.dose.target : 7000;
+    parts.push(`<section class="card fade">
+      <div class="hd"><span class="tag">오늘 걸음수</span><span class="dim num">목표 ${fmt(target)}보</span></div>
+      ${stepsCard(target)}</section>`);
   }
 
-  // 걸음수는 처방이 걸음 기반이 아닐 때만 따로 받습니다 (그 경우엔 처방 칸이 겸합니다)
-  const stepsSection = (S.track.steps && !H.dose) ? `
-    <section class="card fade">
-      <div class="hd"><span class="tag">오늘 걸음수</span>
-        <span class="dim num">목표 ${fmt(7000)}보</span></div>
-      ${lg.steps == null ? `
-        <div class="entry">
-          <input id="dose" type="number" inputmode="numeric" placeholder="––" min="0" max="60000"
-            onkeydown="if(event.key==='Enter')saveDose('steps')">
-          <span class="unit">보</span></div>
-        <button class="btn" style="margin-top:.625rem" onclick="saveDose('steps')">기록</button>`
-      : `<div class="readout"><span class="v">${fmt(lg.steps)}</span><span class="u">보</span>
-          <span class="delta ${lg.steps>=7000?'good':''}" style="margin-left:auto">
-            ${lg.steps>=7000 ? '목표 달성' : `${fmt(7000-lg.steps)}보 남음`}</span></div>
-         <div class="track" style="margin-top:.75rem"><i style="width:${Math.min(100,(lg.steps/7000)*100)}%"></i></div>
-         <button class="btn link" style="text-align:left;padding-left:0" onclick="clearDose('steps')">다시 입력</button>`}
-    </section>` : '';
-
-  const painSection = (S.track.back || S.track.knee) ? `
-    <section class="card fade">
+  if(S.track.back || S.track.knee){
+    parts.push(`<section class="card fade">
       <div class="hd"><span class="tag">오늘의 통증</span><span class="dim">0–10</span></div>
       ${S.track.back ? painBlock('back') : ''}
       ${S.track.knee ? painBlock('knee') : ''}
-    </section>` : '';
+    </section>`);
+  }
 
-  return `<header class="top">
-      <div class="t1">실험 ${t.day}일차 · 남은 ${Math.max(0, S.trial.days - t.day)}일 · 판정 지표 ${esc(M.name)}</div>
-      <h2>${esc(H.suspect)}을(를) 확인하는 중</h2>
-      <div class="track" style="margin-top:.75rem"><i style="width:${(t.day/S.trial.days)*100}%"></i></div>
-    </header>
+  /* 안전 장치 — 아픈 날은 밀어붙이지 않습니다 */
+  if(painHigh()){
+    parts.push(`<section class="card alert fade">
+      <div class="hd"><span class="tag">오늘은 쉬세요</span></div>
+      <p style="margin:0 0 .625rem;font-size:.875rem;color:var(--fg-2)">
+        통증이 ${painToday()}점입니다. 오늘은 처방을 지키지 않아도 됩니다.
+        <b style="color:var(--fg)">쉬는 것도 기록입니다</b> — 판정에 그대로 반영됩니다.</p>
+      <button class="btn ghost" onclick="go('body')">병원에 가야 하는 신호 보기</button></section>`);
+  }
 
-    <section class="card fade">
-      <div class="hd"><span class="tag">오늘 아침 에너지 점수</span></div>
-      ${energyBlock}
-    </section>
-
-    ${stepsSection}
-    ${painSection}
-
-    <section class="card fade">
-      <div class="hd"><span class="tag">오늘의 처방</span></div>
-      <div class="check ${complied(lg, H)===true?'on':''}">
-        <span class="box"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7"/></svg></span>
-        <span class="g"><b>${esc(H.rx)}</b><br><span class="dim">${esc(H.when)}</span></span>
-      </div>
-      ${H.dose ? doseControl(H, lg) : `
-        <div style="display:flex;gap:.5rem">
+  const isDose = !!H.dose;
+  const done = complied(lg, H) === true;
+  parts.push(`<section class="card fade">
+    <div class="hd"><span class="tag">오늘의 처방</span></div>
+    <div class="check ${done?'on':''}">
+      <span class="box"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7"/></svg></span>
+      <span class="g"><b>${esc(H.rx)}</b><br><span class="dim">${esc(H.when)}</span></span>
+    </div>
+    ${isDose
+      ? `<p class="dim" style="margin:0">위에 적은 걸음수가 곧 이행 여부입니다. 따로 체크할 필요가 없습니다.</p>`
+      : `<div style="display:flex;gap:.5rem">
           <button class="btn ghost" style="flex:1" aria-pressed="${lg.did===true}" onclick="setDid(true)">지켰다</button>
           <button class="btn ghost" style="flex:1" aria-pressed="${lg.did===false}" onclick="setDid(false)">못 지켰다</button>
         </div>
         <p class="dim" style="margin-top:.625rem">못 지킨 날도 데이터입니다. 정직하게 눌러야 판정이 정확해집니다.</p>`}
-      ${evidenceBlock(H.ev)}
-    </section>
+    ${evidenceBlock(H.ev)}
+  </section>`);
 
-    <div class="sec">지난 7일 · ${esc(M.name)}</div>
-    <section class="card">${sparkCard(H.metric, 7)}</section>`;
+  parts.push(`<div class="sec">지난 7일 · ${esc(M.name)}</div>
+    <section class="card">${sparkCard(H.metric, 7)}</section>`);
+
+  return parts.join('');
 }
 
 function sparkCard(key, n){
@@ -715,16 +762,31 @@ function sparkCard(key, n){
 
 function viewNoTrial(){
   const id = pickHypothesis(), H = HYPOTHESES[id];
+  const learned = S.past.filter(p => p.kind === 'works');
   return `<header class="top"><div class="t1">진행 중인 실험 없음</div><h2>다음 가설</h2></header>
+    ${learned.length ? `<section class="card good fade">
+      <div class="hd"><span class="tag">지금까지 알아낸 것</span></div>
+      ${learned.map(p => { const h = HYPOTHESES[p.id];
+        return `<div class="kv"><span>${esc(h ? h.rx : p.id)}</span>
+          <span class="num" style="color:var(--green)">효과 확인</span></div>`; }).join('')}
+      <p class="dim" style="margin-top:.625rem">이건 이제 앱이 묻지 않습니다. 계속 하시면 됩니다.</p>
+    </section>` : ''}
     <section class="card fade">
       <p style="margin:0 0 .875rem">${esc(H.claim)}</p>
       <div class="rx"><span class="tag">2주간 바꿀 단 하나</span>
         <h3 style="margin-top:.5rem">${esc(H.rx)}</h3>
         <p class="when">${esc(H.when)}</p></div>
       ${evidenceBlock(H.ev)}</section>
-    <button class="btn amber" style="margin-top:.75rem" onclick="beginNext('${id}')">이 실험 시작</button>`;
+    <button class="btn amber" style="margin-top:.75rem" onclick="beginNext('${id}')">이 실험 시작</button>
+    <button class="btn link" onclick="reroll2()">다른 가설로 바꾸기</button>`;
 }
 function beginNext(id){ startTrial(id); paint(); toast('실험 시작'); }
+function reroll2(){
+  const id = pickHypothesis();
+  S.past.push({id, skipped:true});
+  if(pickHypothesis() === id){ S.past.pop(); toast('제시할 다른 가설이 없습니다'); return; }
+  persist(); paint();
+}
 
 function saveEnergy(){
   const v = Number($('#sc').value);
@@ -732,17 +794,80 @@ function saveEnergy(){
   log().energy = v; persist(); paint();
 }
 function clearEnergy(){ log().energy = null; persist(); paint(); }
-function saveDose(key){
+function saveSteps(){
   const v = Number($('#dose').value);
   if(!(v >= 0 && v <= 60000)){ toast('걸음수를 확인해 주세요'); return; }
-  log()[key] = v; persist(); paint();
+  log().steps = v; persist(); paint();
 }
-function clearDose(key){ log()[key] = null; persist(); paint(); }
+function clearSteps(){ log().steps = null; persist(); paint(); }
 function setPain(key, v){ const l = log(); l[key] = (l[key] === v ? null : v); persist(); paint(); }
 function setDid(v){ const l = log(); l.did = (l.did === v ? null : v); persist(); paint(); }
 
-/* 용량-반응 패널 — 많이 할수록 좋아지는 기울기가 보이는지.
-   이분법 비교보다 강한 증거입니다. */
+/* ── 주간 측정 (스톱워치) ──────────────────────── */
+let mz = null;   // {order, idx, running, t0, raf, result}
+
+function startMeasure(){
+  mz = {order:['sitStand','balance'], idx:0, running:false, t0:0, raf:null, result:{}};
+  renderMeasure();
+}
+function renderMeasure(){
+  const key = mz.order[mz.idx], M = MEASURES[key];
+  $('#screen').innerHTML = `
+    <header class="top"><div class="t1">주간 측정 ${mz.idx+1} / ${mz.order.length}</div>
+      <h2>${esc(M.name)}</h2></header>
+    <section class="card">
+      <div class="hd"><span class="tag">무엇을 보는가</span></div>
+      <p style="margin:0 0 .875rem;font-size:.875rem;color:var(--fg-2)">${esc(M.what)}</p>
+      <ol class="flags" style="padding-left:1.25rem">${M.how.map(h => `<li>${esc(h)}</li>`).join('')}</ol>
+      <p class="dim" style="margin-top:.75rem;color:var(--amber)">${esc(M.safety)}</p>
+    </section>
+    <div class="clock num" id="clock">0.0</div>
+    <button class="stopwatch" id="sw" onclick="tapWatch()">시작</button>
+    <button class="btn link" onclick="cancelMeasure()">나중에 하기</button>`;
+}
+function tapWatch(){
+  const sw = $('#sw');
+  if(!mz.running){
+    mz.running = true; mz.t0 = performance.now();
+    sw.textContent = '멈춤'; sw.classList.add('running');
+    const tick = () => {
+      if(!mz.running) return;
+      $('#clock').textContent = ((performance.now() - mz.t0)/1000).toFixed(1);
+      mz.raf = requestAnimationFrame(tick);
+    };
+    tick();
+    return;
+  }
+  mz.running = false;
+  if(mz.raf) cancelAnimationFrame(mz.raf);
+  const secs = Math.round((performance.now() - mz.t0)/100)/10;
+  mz.result[mz.order[mz.idx]] = secs;
+  sw.classList.remove('running');
+  mz.idx++;
+  if(mz.idx < mz.order.length){ renderMeasure(); $('#clock').textContent = '0.0'; return; }
+  finishMeasure();
+}
+function finishMeasure(){
+  S.measures.push({date:dkey(), ...mz.result});
+  persist();
+  const lines = Object.keys(mz.result).map(k => {
+    const M = MEASURES[k], ch = measureChange(k);
+    return `<div class="kv"><span>${esc(M.name)}</span>
+      <span class="num">${mz.result[k].toFixed(1)}${esc(M.unit)}
+      ${ch ? `<span class="delta ${ch.gain>0?'good':ch.gain<0?'bad':''}">첫 측정 대비 ${sign(ch.gain)}</span>` : ''}</span></div>`;
+  }).join('');
+  mz = null;
+  $('#screen').innerHTML = `
+    <header class="top"><div class="t1">측정 완료</div><h2>기록했습니다</h2></header>
+    <section class="card good">${lines}</section>
+    <p class="dim" style="margin:.875rem .25rem">
+      40대의 절대 기준치는 학계에 정립돼 있지 않습니다. 그래서 이 앱은 "몇 살 수준"이라고 말하지 않습니다.
+      대신 <b style="color:var(--fg-2)">당신 자신의 변화</b>만 봅니다. 그건 확실한 사실이니까요.</p>
+    <button class="btn amber" onclick="go('today')">오늘로 돌아가기</button>`;
+}
+function cancelMeasure(){ if(mz && mz.raf) cancelAnimationFrame(mz.raf); mz = null; go('today'); }
+
+/* ── 실험 ──────────────────────────────────────── */
 function doseResponsePanel(entries, H){
   const bands = doseResponse(entries, H);
   const dM = METRICS[H.dose.key], mM = METRICS[H.metric];
@@ -754,8 +879,7 @@ function doseResponsePanel(entries, H){
   }
   const outs = bands.map(b => b.out);
   const lo = Math.min(...outs), hi = Math.max(...outs), span = hi - lo || 1;
-  const slope = (bands[2].out - bands[0].out) * mM.dir;   // 양수면 많이 할수록 개선
-
+  const slope = (bands[2].out - bands[0].out) * mM.dir;
   return `<div class="sec">용량-반응 · 많이 걸을수록?</div>
     <section class="card">
       ${bands.map(b => {
@@ -763,32 +887,27 @@ function doseResponsePanel(entries, H){
         const good = (b.out - bands[0].out) * mM.dir >= 0;
         return `<div style="padding:.5rem 0">
           <div style="display:flex;justify-content:space-between;font-size:.8125rem;margin-bottom:.3125rem">
-            <span>${esc(b.label)}
-              <span class="dim num">${fmt(b.lo)}–${fmt(b.hi)}${esc(dM.unit)} · ${b.n}일</span></span>
-            <span class="num" style="font-weight:600">${b.out.toFixed(1)}${esc(mM.unit)}</span>
-          </div>
+            <span>${esc(b.label)} <span class="dim num">${fmt(b.lo)}–${fmt(b.hi)}${esc(dM.unit)} · ${b.n}일</span></span>
+            <span class="num" style="font-weight:600">${b.out.toFixed(1)}${esc(mM.unit)}</span></div>
           <div style="height:.5rem;background:var(--edge-2);border-radius:.25rem;overflow:hidden">
             <div style="height:100%;width:${w}%;border-radius:.25rem;background:${good?'var(--green)':'var(--amber-dim)'}"></div>
           </div></div>`;
       }).join('')}
       <p class="dim" style="margin-top:.75rem">
         막대는 각 구간의 <b style="color:var(--fg-2)">${esc(mM.name)} 평균</b>입니다.
-        ${slope >= mM.band
-          ? `많이 걸은 날일수록 ${esc(mM.name)}이(가) 좋았습니다. 기울기가 보입니다.`
-          : slope <= -mM.band
-            ? `많이 걸은 날이 오히려 나빴습니다. 무리했을 가능성을 살펴보세요.`
-            : `아직 뚜렷한 기울기가 없습니다.`}
-      </p>
+        ${slope >= mM.band ? `많이 걸은 날일수록 ${esc(mM.name)}이(가) 좋았습니다. 기울기가 보입니다.`
+          : slope <= -mM.band ? `많이 걸은 날이 오히려 나빴습니다. 무리했을 가능성을 살펴보세요.`
+          : `아직 뚜렷한 기울기가 없습니다.`}</p>
       <p class="dim" style="margin-top:.375rem">
         하루하루의 걸음수는 몸 상태에 따라 달라지기도 합니다.
         기울기는 원인의 방향을 암시할 뿐, 그 자체로 증명은 아닙니다.</p>
     </section>`;
 }
 
-/* ── 실험 ──────────────────────────────────────── */
 function viewTrial(){
   const t = trialState();
   const past = S.past.filter(p => !p.skipped);
+  const label = k => k === 'works' ? '효과 있음' : k === 'reverse' ? '역효과' : k === 'none' ? '효과 없음' : '판정 불가';
   let cur;
 
   if(t){
@@ -797,7 +916,6 @@ function viewTrial(){
     const missed = t.entries.filter(e => complied(e, H) === false).length;
     const logged = t.entries.filter(e => e[H.metric] != null).length;
     const v = verdict(t.entries, H);
-    const sign = x => (x > 0 ? '+' : '') + x.toFixed(1);
 
     cur = `<section class="card fade">
         <div class="hd"><span class="tag">진행 중</span><span class="num dim">${t.day} / ${S.trial.days}일</span></div>
@@ -811,10 +929,9 @@ function viewTrial(){
       </section>
 
       <div class="sec">${t.done ? '판정' : '중간 상황'}</div>
-      <section class="card">
+      <section class="card ${t.done && v.kind==='works' ? 'good' : t.done ? 'alert' : ''}">
         <p style="margin:0 0 .75rem">${esc(v.msg)}</p>
-        ${v.on != null ? `
-          <div class="kv"><span class="k2">지킨 날 평균</span><span class="num">${v.on.toFixed(1)}${M.unit}</span></div>` : ''}
+        ${v.on != null ? `<div class="kv"><span class="k2">지킨 날 평균</span><span class="num">${v.on.toFixed(1)}${M.unit}</span></div>` : ''}
         ${v.off != null ? `
           <div class="kv"><span class="k2">못 지킨 날 평균</span><span class="num">${v.off.toFixed(1)}${M.unit}</span></div>
           <div class="kv"><span class="k2">개선폭</span><span class="num"
@@ -836,15 +953,14 @@ function viewTrial(){
   }
 
   const graduated = past.filter(p => p.kind === 'works');
-  const label = k => k === 'works' ? '효과 있음' : k === 'reverse' ? '역효과' : k === 'none' ? '효과 없음' : '판정 불가';
 
   return `<header class="top"><div class="t1">실험</div><h2>무엇이 통했나</h2></header>
     ${cur}
     ${graduated.length ? `<div class="sec">알아낸 것 — 이제 앱이 묻지 않습니다</div>
-      <section class="card">${graduated.map(p => {
+      <section class="card good">${graduated.map(p => {
         const H = HYPOTHESES[p.id], M = METRICS[H ? H.metric : 'energy'];
         return `<div class="kv"><span>${esc(H ? H.rx : p.id)}</span>
-          <span class="num" style="color:var(--green)">${p.gain != null ? (p.gain>0?'+':'')+p.gain.toFixed(1)+M.unit : '확인'}</span></div>`;
+          <span class="num" style="color:var(--green)">${p.gain != null ? sign(p.gain)+M.unit : '확인'}</span></div>`;
       }).join('')}</section>` : ''}
     <div class="sec">지난 실험</div>
     <section class="card">${past.length ? past.map(p => {
@@ -863,20 +979,46 @@ function closeTrial(){
   toast(v.kind === 'works' ? '졸업. 다음 가설로.' : '기각. 다음 가설로.');
 }
 
-/* ── 나 ────────────────────────────────────────── */
-function viewMe(){
+/* ── 몸 ────────────────────────────────────────── */
+function viewBody(){
   const a = age(), d = daysLeft();
   const graduated = S.past.filter(p => p.kind === 'works');
+
+  const measureCards = Object.keys(MEASURES).map(k => {
+    const M = MEASURES[k], ch = measureChange(k);
+    const last = S.measures.filter(m => m[k] != null).slice(-1)[0];
+    if(!last) return `<div class="kv"><span>${esc(M.name)}</span><span class="dim">아직 측정 전</span></div>`;
+    return `<div class="kv"><span>${esc(M.name)}<br><span class="dim">${esc(M.what)}</span></span>
+      <span class="num" style="text-align:right">${last[k].toFixed(1)}${esc(M.unit)}
+        ${ch ? `<br><span class="delta ${ch.gain>0?'good':ch.gain<0?'bad':''}">${ch.weeks}주간 ${sign(ch.gain)}${esc(M.unit)}</span>` : ''}</span></div>`;
+  }).join('');
+
   const painCards = ['back','knee'].filter(k => S.track[k]).map(k =>
     `<div class="sec">${esc(METRICS[k].name)} · 지난 30일</div>
      <section class="card">${sparkCard(k, 30)}</section>`).join('');
 
-  return `<header class="top"><div class="t1">나</div><h2>목표와 기록</h2></header>
+  const flagList = ['back','knee'].filter(k => S.track[k]).map(k =>
+    `<p style="margin:.75rem 0 .375rem;font-size:.875rem;font-weight:600">${esc(METRICS[k].name)}</p>
+     <ul class="flags">${RED_FLAGS[k].map(f => `<li>${esc(f)}</li>`).join('')}</ul>`).join('');
+
+  return `<header class="top"><div class="t1">몸</div><h2>측정과 기록</h2></header>
+
     <section class="card fade">
       <div class="hd"><span class="tag">목표</span></div>
       <div class="readout"><span class="v">${fmt(d)}</span><span class="u">일 남음</span></div>
       <div class="kv" style="margin-top:.875rem"><span class="k2">나이</span><span class="num">${a}세</span></div>
       <div class="kv"><span class="k2">목표</span><span>${S.targetAge}세까지 건강하게</span></div>
+    </section>
+
+    <div class="sec">기능 측정 · 주 1회</div>
+    <section class="card">
+      ${measureCards}
+      <button class="btn ${measureDue()?'amber':'ghost'}" style="margin-top:.875rem" onclick="startMeasure()">
+        ${measureDue() ? '지금 측정하기' : '다시 측정하기'}</button>
+      <p class="dim" style="margin-top:.625rem">
+        40대의 절대 기준치는 학계에 정립돼 있지 않아, 이 앱은 "몇 살 수준"이라고 말하지 않습니다.
+        오직 당신 자신의 변화만 봅니다. 전국 측정소의 <b style="color:var(--fg-2)">국민체력100</b>에서
+        연령·성별 백분위 기준의 무료 정밀 측정을 3~6개월에 한 번 받으시면 현재 위치도 알 수 있습니다.</p>
     </section>
 
     ${painCards}
@@ -891,54 +1033,74 @@ function viewMe(){
     </section>
 
     <div class="sec">내 몸에 대해 알아낸 것</div>
-    <section class="card">
-      ${graduated.length ? graduated.map(p => {
-        const H = HYPOTHESES[p.id];
+    <section class="card ${graduated.length?'good':''}">
+      ${graduated.length ? graduated.map(p => { const H = HYPOTHESES[p.id];
         return `<div class="kv"><span>${esc(H ? H.rx : p.id)}</span>
-          <span class="num" style="color:var(--green)">효과 확인</span></div>`;
-      }).join('') : '<p class="dim" style="margin:0">아직 없습니다. 첫 실험이 끝나면 여기 쌓입니다.</p>'}
+          <span class="num" style="color:var(--green)">효과 확인</span></div>`; }).join('')
+      : '<p class="dim" style="margin:0">아직 없습니다. 첫 실험이 끝나면 여기 쌓입니다.</p>'}
     </section>
+
+    ${flagList ? `<div class="sec">병원에 가야 하는 신호</div>
+    <section class="card alert">
+      <p style="margin:0;font-size:.875rem;color:var(--fg-2)">
+        아래 중 하나라도 해당하면 이 앱의 처방을 따르지 마시고 진료를 받으세요.</p>
+      ${flagList}
+    </section>` : ''}
 
     <div class="sec">근거 도서관</div>
     <section class="card">
-      ${Object.keys(EVIDENCE).map(k => {
-        const e = EVIDENCE[k];
+      ${Object.keys(EVIDENCE).map(k => { const e = EVIDENCE[k];
         return `<div style="padding:.75rem 0;border-top:1px solid var(--edge-2)">
           ${gradeBadge(k)}
           <div style="font-size:.8125rem;line-height:1.7;color:var(--fg-2)">${esc(e.text)}</div>
           <cite style="display:block;font-style:normal;font-size:.6875rem;color:var(--fg-3);margin-top:.375rem">${esc(e.src)} · ${esc(e.reviewed)} 검토</cite>
-        </div>`;
-      }).join('')}
+        </div>`; }).join('')}
     </section>
 
-    <div class="sec">정밀 측정</div>
+    <div class="sec">기록</div>
     <section class="card">
-      <p class="dim" style="margin:0 0 .75rem">문화체육관광부 <b style="color:var(--fg-2)">국민체력100</b>에서
-        전국 측정소의 체력 측정을 무료로 받을 수 있습니다. 연령·성별 백분위 기준으로 등급이 나옵니다.</p>
-      <p class="dim" style="margin:0">이 앱이 매일 재는 건 <b style="color:var(--fg-2)">변화</b>고,
-        거기서 재는 건 <b style="color:var(--fg-2)">현재 위치</b>입니다.</p>
+      <div class="kv"><span class="k2">기록한 날</span><span class="num">${Object.keys(S.logs).length}일</span></div>
+      <div class="kv"><span class="k2">측정 횟수</span><span class="num">${S.measures.length}회</span></div>
+      <button class="btn ghost" style="margin-top:.875rem" onclick="exportData()">내 기록 내려받기</button>
+      <p class="dim" style="margin-top:.625rem">
+        기록은 이 기기에만 저장됩니다. 어디로도 전송되지 않습니다.
+        앱을 지우기 전에 내려받으면 그대로 보관할 수 있습니다.</p>
     </section>
 
-    <p class="dim" style="text-align:center;margin:1.5rem 0 .5rem">기록은 이 기기에만 저장됩니다</p>
+    <p class="dim" style="margin:1.25rem .25rem;line-height:1.8">
+      내모마루는 의료기기가 아닙니다. 진단이나 치료를 대신하지 않으며,
+      여기서 제시하는 처방은 건강한 성인의 생활습관을 대상으로 합니다.
+      지병이 있거나 치료 중이라면 담당 의료진과 먼저 상의하세요.</p>
     <button class="btn link" onclick="wipe()">전부 지우고 처음부터</button>`;
 }
 
 function toggleTrack(k){
   S.track[k] = !S.track[k];
-  if(S.track[k] && !S.complaints.includes(k)) S.complaints.push(k);
+  if(S.track[k] && !S.complaints.includes(k) && k !== 'steps') S.complaints.push(k);
   persist(); paint();
   toast(S.track[k] ? `${METRICS[k].name} 기록을 켰습니다` : `${METRICS[k].name} 기록을 껐습니다`);
 }
+function exportData(){
+  const blob = new Blob([JSON.stringify(S, null, 2)], {type:'application/json'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = `내모마루-${dkey()}.json`;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+  toast('내려받았습니다');
+}
 function wipe(){
-  if(!confirm('모든 기록을 지우고 처음부터 시작할까요?')) return;
+  if(!confirm('모든 기록을 지우고 처음부터 시작할까요? 되돌릴 수 없습니다.')) return;
   localStorage.removeItem(KEY); location.reload();
 }
 
 /* ── 전환 ──────────────────────────────────────── */
 let tab = 'today';
-const VIEWS = {today:viewToday, trial:viewTrial, me:viewMe};
-function paint(){ $('#screen').innerHTML = VIEWS[tab](); }
+const VIEWS = {today:viewToday, trial:viewTrial, body:viewBody};
+function paint(){ if(mz) return; $('#screen').innerHTML = VIEWS[tab](); }
 function go(next){
+  if(mz && mz.raf) cancelAnimationFrame(mz.raf);
+  mz = null;
   tab = next;
   document.querySelectorAll('.tabs button').forEach(b =>
     b.dataset.tab === next ? b.setAttribute('aria-current','page') : b.removeAttribute('aria-current'));
