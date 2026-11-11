@@ -170,13 +170,15 @@ const REQUIRED = [
   { id:'gangway', name:'5 yearly load test certificate of accommodation ladder/gangway',
     keys:[/gangway/, /accommodation ladder/, /acc ?ladder/, /accom/, /load ?test/, /loat ?test/, /갱웨이/, /사다리/, /하중 ?시험/] },
   { id:'psc', name:'Latest PSC report and rectification evidence',
-    keys:[/psc/, /port state/, /항만 ?국가/] },
+    keys:[/psc/, /\bp ?s ?c\b/, /port state/, /tokyo ?mou/, /paris ?mou/, /indian ?(ocean )?mou/, /uscg/, /amsa/, /form ?a\b/, /form ?b\b/, /inspection report/, /항만 ?국가/, /항만 ?통제/] },
   { id:'pscrect', name:'Latest PSC rectification evidence',
-    keys:[/rectif/, /corrective/, /close ?out/, /evidence/, /시정/] },
+    keys:[/rectif/, /corrective/, /close ?out/, /closing/, /evidence/, /시정/, /조치/] },
   { id:'crew', name:'Crew matrix', keys:[/crew/, /matrix/, /승무원/, /선원/] },
   { id:'vef', name:'VEF', keys:[/\bvef\b/, /vessel experience/, /experience factor/] },
   { id:'ports', name:'Last 10 port of call list',
     keys:[/last ?10/, /port ?of ?call/, /ports? ?call/, /port ?history/, /\bpoc\b/, /기항/] },
+  { id:'cargo3', name:'Last 3 cargoes', isNew:true,
+    keys:[/last ?(3|three) ?cargo/, /last ?cargo/, /previous ?cargo/, /prev ?cargo/, /cargo ?history/, /화물 ?이력/, /전 ?화물/, /직전 ?화물/] },
   { id:'cap', name:'CAP Certification (Over 20 Year Olds, DWT Over 5KT)', isNew:true, cap:true,
     keys:[/\bcap\b/, /condition assessment/, /\bcap ?(cert|certificate|report)/] },
 ];
@@ -188,6 +190,7 @@ const state = {
   manualOk: {},       // docId -> true
   removed: {},        // docId -> {fileId:true}  자동매칭 해제
   forceNa: {},        // docId -> true  사용자가 해당없음 지정
+  extra: {},          // docId -> [fileId]  이미 다른 서류에 쓰인 파일을 이 서류에도 지정
 };
 let seq = 0;
 
@@ -223,6 +226,12 @@ function computeAssignments(){
     let ids = ov ? [ov] : autoMatch(f).filter(id => !(state.removed[id] && state.removed[id][f.id]));
     if (!ids.length) { unknown.push(f); continue; }
     ids.forEach(id => byDoc[id].push(f));
+  }
+  for (const [docId, fids] of Object.entries(state.extra)){
+    fids.forEach(fid => {
+      const f = state.files.find(x => x.id === fid);
+      if (f && !byDoc[docId].includes(f)) byDoc[docId].push(f);
+    });
   }
   return {byDoc, unknown};
 }
@@ -263,7 +272,8 @@ function render(){
       const b = document.createElement('button'); b.textContent = '빼기'; b.className='noprint';
       b.title = '이 서류에서 이 파일을 제외';
       b.onclick = () => {
-        if (state.override[f.id] === d.id) delete state.override[f.id];
+        if (state.extra[d.id] && state.extra[d.id].includes(f.id)) state.extra[d.id] = state.extra[d.id].filter(x => x !== f.id);
+        else if (state.override[f.id] === d.id) delete state.override[f.id];
         else (state.removed[d.id] ||= {})[f.id] = true;
         render();
       };
@@ -275,6 +285,17 @@ function render(){
       lab.innerHTML = `<input type="checkbox" ${state.manualOk[d.id]?'checked':''}> ${esc(d.manual)}`;
       lab.querySelector('input').onchange = e => { state.manualOk[d.id] = e.target.checked; render(); };
       ex.appendChild(lab);
+    }
+    if (st !== 'na' && state.files.length){
+      const sel = document.createElement('select'); sel.className='noprint'; sel.style.marginTop='6px';
+      sel.innerHTML = '<option value="">+ 올린 파일 중에서 이 서류로 지정…</option>' +
+        state.files.filter(f => !files.includes(f)).map(f => `<option value="${f.id}">${esc(f.path || f.name)}</option>`).join('');
+      sel.onchange = () => {
+        const fid = +sel.value; if (!fid) return;
+        if (state.removed[d.id]) delete state.removed[d.id][fid];
+        (state.extra[d.id] ||= []).push(fid); render();
+      };
+      ex.appendChild(sel);
     }
     if (!d.cap || capReq !== false){
       const lab = document.createElement('label'); lab.className='chk noprint';
@@ -367,7 +388,7 @@ $('fileInput').onchange = e => { addFiles([...e.target.files]); e.target.value='
 $('folderInput').onchange = e => { addFiles([...e.target.files]); e.target.value=''; };
 $('reset').onclick = () => {
   if (state.files.length && !confirm('올린 파일 목록과 체크 상태를 모두 지울까요?')) return;
-  state.files=[]; state.override={}; state.manualOk={}; state.removed={}; state.forceNa={}; render();
+  state.files=[]; state.override={}; state.manualOk={}; state.removed={}; state.forceNa={}; state.extra={}; render();
 };
 ['built','dwt','vessel'].forEach(id => $(id).addEventListener('input', render));
 
