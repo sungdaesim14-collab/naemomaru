@@ -96,7 +96,8 @@
       <label>건조년도 (Year built)<input type="number" id="built" placeholder="예: 2004" min="1950" max="2100"></label>
       <label>DWT (톤)<input type="number" id="dwt" placeholder="예: 46000" min="0"></label>
     </div>
-    <p class="note" id="capNote" style="margin:10px 0 0"></p>
+    <p class="note" id="q88Note" style="margin:10px 0 0;color:var(--accent)"></p>
+    <p class="note" id="capNote" style="margin:4px 0 0"></p>
   </div>
 
   <div class="card noprint">
@@ -149,15 +150,24 @@
  * S-Oil 요구서류가 바뀌면 이 배열만 수정하면 됩니다.
  *  - keys : 파일명에 이 패턴 중 하나라도 있으면 해당 서류로 인식 (대소문자 무시)
  *  - manual : 파일이 들어와도 사람이 직접 확인해야 하는 사항 (체크해야 '수령' 처리)
+ *  - weakKeys : 다른 서류에 하나도 안 걸렸을 때만 쓰는 약한 패턴
  *  - cap : CAP 조건부 항목 (선령 20년 초과 또는 DWT 5,000톤 초과 시에만 필요)
  */
+/* 선급(Class society) 약어 — 필요하면 추가 */
+const CLASS_SOC = 'abs|bv|ccs|crs|dnv|dnvgl|dnv ?gl|gl|irs|irclass|kr|lr|lrs|nk|nkk|classnk|prs|rina|rs|rmrs|tl|bki|vr|phrs|hrs|icr|ibs|krs';
+const CLASS_WORD = 'status|survey|surveys|record|records|report|ssr|cssr|listing|list|summary';
+
 const REQUIRED = [
   { id:'quest', name:'S-Oil questionnaire rev.9 (including additional document)',
     keys:[/s ?oil/, /questionnaire/, /q ?naire/, /질의서/, /설문/],
     manual:'Rev.9 버전 및 additional document 포함 여부 확인' },
   { id:'q88', name:'Q88', keys:[/q ?88/] },
   { id:'class', name:'Class survey status report',
-    keys:[/class/, /survey status/, /status report/, /\bcss\b/, /선급/, /검사 ?현황/] },
+    keys:[/class/, /cssr/, /\bc ?s ?s ?r\b/, /\bssr\b/, /\bcss\b/, /survey ?status/, /status ?of ?(class|survey)/,
+          /survey ?(record|summary|list)/, /status report/, /선급/, /검사 ?현황/, /검사 ?기록/,
+          new RegExp(`\\b(${CLASS_SOC})\\b.*\\b(${CLASS_WORD})\\b`), new RegExp(`\\b(${CLASS_WORD})\\b.*\\b(${CLASS_SOC})\\b`)],
+    // 다른 서류에 전혀 안 걸린 파일인데 선급 약어만 있으면(예: "DNV.pdf") 이 서류로 간주
+    weakKeys:[new RegExp(`\\b(${CLASS_SOC})\\b`)] },
   { id:'ga', name:'General arrangement (all graphics to be legible)',
     keys:[/general arrangement/, /\bg ?a\b/, /\bga ?(plan|dwg|drawing)/, /일반 ?배치/],
     manual:'도면 가독성(legible) 확인' },
@@ -185,7 +195,8 @@ const REQUIRED = [
 
 /* ===================== 상태 ===================== */
 const state = {
-  files: [],          // {id, name, path}
+  files: [],          // {id, name, path, blob()}
+  q88Done: {},        // fileId -> true  Q88 읽기 완료
   override: {},       // fileId -> docId | '__ignore'
   manualOk: {},       // docId -> true
   removed: {},        // docId -> {fileId:true}  자동매칭 해제
@@ -202,6 +213,8 @@ function autoMatch(file){
   const p = norm(file.path || '');
   const hits = REQUIRED.filter(d => d.keys.some(k => k.test(n)));
   if (hits.length) return hits.map(d => d.id);
+  const weak = REQUIRED.filter(d => d.weakKeys && d.weakKeys.some(k => k.test(n)));
+  if (weak.length) return weak.map(d => d.id);
   // 파일명으로 안 잡히면 폴더명으로 한 번 더
   return REQUIRED.filter(d => d.keys.some(k => k.test(p))).map(d => d.id);
 }
@@ -332,9 +345,123 @@ function render(){
   else if (counts.warn) { v.textContent = `모두 수령 · 확인필요 ${counts.warn}건`; v.style.color='var(--warn)'; }
   else { v.textContent = '✓ 모든 서류 수령 완료'; v.style.color='var(--ok)'; }
   window._last = {byDoc, counts};
+  byDoc.q88.forEach(f => { if (!state.q88Done[f.id]) { state.q88Done[f.id] = true; readQ88(f); } });
 }
 
 function esc(s){ return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
+/* ===================== Q88 자동 읽기 =====================
+ * Q88 파일(PDF / 엑셀)에서 선명·건조년도·DWT를 찾아 선박 정보에 넣습니다.
+ * 라이브러리는 Q88 파일이 있을 때만 불러옵니다(인터넷 필요).
+ */
+const LIB = {
+  pdf:'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js',
+  pdfWorker:'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js',
+  xlsx:'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js',
+};
+const loaded = {};
+function loadScript(url){
+  return loaded[url] ||= new Promise((res, rej) => {
+    const s = document.createElement('script'); s.src = url; s.onload = res;
+    s.onerror = () => { delete loaded[url]; rej(new Error('load fail')); };
+    document.head.appendChild(s);
+  });
+}
+
+async function pdfText(blob){
+  await loadScript(LIB.pdfWorker);       // 워커를 메인 스레드에 올림 (file:// 에서도 동작)
+  await loadScript(LIB.pdf);
+  pdfjsLib.GlobalWorkerOptions.workerSrc = LIB.pdfWorker;
+  const doc = await pdfjsLib.getDocument({data: new Uint8Array(await blob.arrayBuffer())}).promise;
+  const out = [];
+  for (let i = 1; i <= Math.min(doc.numPages, 6); i++){
+    const page = await doc.getPage(i);
+    const tc = await page.getTextContent();
+    const rows = {};
+    tc.items.forEach(it => {
+      if (!it.str || !it.str.trim()) return;
+      const y = Math.round(it.transform[5] / 3);  // 같은 줄로 묶기
+      (rows[y] ||= []).push(it);
+    });
+    Object.keys(rows).map(Number).sort((a,b) => b-a).forEach(y => {
+      out.push(rows[y].sort((a,b) => a.transform[4]-b.transform[4]).map(it => it.str.trim()).join('  '));
+    });
+  }
+  return out.join('\n');
+}
+
+async function xlsxText(blob){
+  await loadScript(LIB.xlsx);
+  const wb = XLSX.read(new Uint8Array(await blob.arrayBuffer()), {type:'array'});
+  return wb.SheetNames.map(n => XLSX.utils.sheet_to_json(wb.Sheets[n], {header:1, raw:false, blankrows:false})
+    .map(row => row.filter(c => c != null && String(c).trim() !== '').join('  ')).join('\n')).join('\n');
+}
+
+function parseQ88(text, fileName){
+  const lines = text.split('\n').map(l => l.replace(/\s+/g,' ').trim()).filter(Boolean);
+  const r = {};
+
+  // 선명
+  const nameRe = /(vessel'?s?\s+name|name\s+of\s+(the\s+)?(vessel|ship)|ship'?s?\s+name)\s*(\([^)]*\))?\s*:?\s*(.*)$/i;
+  for (const l of lines){
+    const m = l.match(nameRe);
+    if (!m || /previous|former|ex[- ]name/i.test(l)) continue;
+    let v = m[5].replace(/\(.*?\)/g,'').replace(/\bIMO\b.*$/i,'').replace(/\b\d{7}\b.*$/,'').replace(/[:|"]/g,'').trim();
+    if (v.length >= 2 && /[A-Za-z]/.test(v)) { r.name = v.toUpperCase(); break; }
+  }
+  if (!r.name){
+    const m = fileName.replace(/\.[^.]+$/,'').match(/^(?:\d+\s*[.)_-]\s*)?(.+?)[\s_-]*q\s?88/i);
+    if (m && m[1].trim().length >= 2) r.name = m[1].replace(/[_]+/g,' ').trim().toUpperCase();
+  }
+
+  // 건조년도 (인도일)
+  const yearRe = /(date\s+(of\s+)?deliver(ed|y)|delivery\s+date|year\s+(of\s+)?built|built\s+year|keel\s+laid|\bbuilt\b|\bdelivered\b)/i;
+  for (const l of lines){
+    if (!yearRe.test(l) || /updated|keel/i.test(l)) continue;
+    const ys = (l.match(/\b(19[5-9]\d|20\d\d)\b/g) || []).map(Number).filter(y => y <= new Date().getFullYear());
+    if (ys.length) { r.built = ys[0]; break; }
+  }
+
+  // DWT : 만재흘수선 표의 Summer 줄 → 없으면 Deadweight/DWT 줄
+  const num = l => (l.match(/\d{1,3}(?:,\d{3})+(?:\.\d+)?|\d{4,6}(?:\.\d+)?/g) || [])
+                    .map(x => parseFloat(x.replace(/,/g,''))).filter(v => v >= 1000 && v <= 600000 && !(v >= 1950 && v <= 2100 && Number.isInteger(v)));
+  for (const l of lines){
+    if (/^\s*([\d.]+\s*)?summer\b/i.test(l) || /\bsummer\b(?!.*(winter|tropical))/i.test(l)){
+      const v = num(l); if (v.length) { r.dwt = Math.round(v[0]); break; }
+    }
+  }
+  if (!r.dwt){
+    for (const l of lines){
+      if (!/dead\s?weight|\bdwt\b/i.test(l)) continue;
+      const v = num(l); if (v.length) { r.dwt = Math.round(v[0]); break; }
+    }
+  }
+  return r;
+}
+
+async function readQ88(f){
+  const note = $('q88Note');
+  const ext = (f.name.split('.').pop() || '').toLowerCase();
+  if (!['pdf','xlsx','xls','xlsm','csv'].includes(ext)) return;
+  note.textContent = `Q88 읽는 중… (${f.name})`;
+  try {
+    const blob = await f.blob();
+    const text = ext === 'pdf' ? await pdfText(blob) : await xlsxText(blob);
+    const r = parseQ88(text, f.name);
+    const got = [], miss = [];
+    [['vessel','name','선명'],['built','built','건조년도'],['dwt','dwt','DWT']].forEach(([id,key,label]) => {
+      const el = $(id);
+      if (r[key] == null) { miss.push(label); return; }
+      if (el.value && !el.dataset.auto) return;      // 직접 입력한 값은 덮어쓰지 않음
+      el.value = r[key]; el.dataset.auto = '1'; got.push(`${label} ${r[key]}`);
+    });
+    note.textContent = (got.length ? `Q88에서 자동 입력: ${got.join(' · ')} — 값이 맞는지 확인하세요.` : 'Q88에서 새로 입력할 값이 없습니다.')
+      + (miss.length ? ` (찾지 못함: ${miss.join(', ')} → 직접 입력)` : '');
+    render();
+  } catch(e){
+    note.textContent = `Q88 파일을 읽지 못했습니다 (${f.name}). 인터넷 연결을 확인하거나 선박 정보를 직접 입력하세요.`;
+  }
+}
 
 /* ===================== 파일 입력 ===================== */
 async function addFiles(list){
@@ -347,13 +474,13 @@ async function addFiles(list){
           if (entry.dir) return;
           const base = p.split('/').pop();
           if (!base || base.startsWith('.') || p.startsWith('__MACOSX')) return;
-          state.files.push({id:++seq, name:base, path:file.name+' › '+p});
+          state.files.push({id:++seq, name:base, path:file.name+' › '+p, blob:() => entry.async('blob')});
         });
         continue;
       } catch(e){ /* 읽기 실패 시 일반 파일로 취급 */ }
     }
     if (file.name.startsWith('.')) continue;
-    state.files.push({id:++seq, name:file.name, path});
+    state.files.push({id:++seq, name:file.name, path, blob:() => Promise.resolve(file)});
   }
   render();
 }
@@ -388,9 +515,11 @@ $('fileInput').onchange = e => { addFiles([...e.target.files]); e.target.value='
 $('folderInput').onchange = e => { addFiles([...e.target.files]); e.target.value=''; };
 $('reset').onclick = () => {
   if (state.files.length && !confirm('올린 파일 목록과 체크 상태를 모두 지울까요?')) return;
-  state.files=[]; state.override={}; state.manualOk={}; state.removed={}; state.forceNa={}; state.extra={}; render();
+  state.files=[]; state.override={}; state.manualOk={}; state.removed={}; state.forceNa={}; state.extra={}; state.q88Done={};
+  ['vessel','built','dwt'].forEach(id => { $(id).value=''; delete $(id).dataset.auto; });
+  $('q88Note').textContent=''; render();
 };
-['built','dwt','vessel'].forEach(id => $(id).addEventListener('input', render));
+['built','dwt','vessel'].forEach(id => $(id).addEventListener('input', () => { delete $(id).dataset.auto; render(); }));
 
 /* ===================== 내보내기 ===================== */
 function reportText(onlyMissing){
